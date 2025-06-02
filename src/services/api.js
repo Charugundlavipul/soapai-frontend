@@ -25,12 +25,40 @@ export const patchProfile = data => {
 export const patchPassword = body        => api.patch('/profile/password', body);
 export const logout        = ()          => api.post('/auth/logout');
 export const getBehaviours = () => api.get('/behaviours');
-export const postBehaviour = body => api.post('/behaviours', body);
+export const postBehaviour  = body      =>
+  api.post('/behaviours', body, {
+    headers:{ 'Content-Type':'application/json' }
+  });
 export const deleteBehaviour = id => api.delete(`/behaviours/${id}`);
 
 // Non Gpt
 export const getClients   = ()           => api.get('/clients');
 export const postClient   = body         => api.post('/clients', body);
+export const getAppointment = id =>
+  api.get(`/appointments/${id}`);
+
+export const uploadVideo = (appointmentId, formData) =>
+  api.post(`/appointments/${appointmentId}/video`, formData, {
+    headers: { 'Content-Type': 'multipart/form-data' }
+  });
+  export const patchVidBeh   = (id, body) =>
+  api.patch(`/videos/${id}/behaviours`, body);
+
+// src/services/api.js
+export const chatLLM = body => api.post('/chat', body);
+export const getVideo = id => api.get(`/videos/${id}`);
+export const getTranscript = id => api.get(`/videos/${id}/transcript`);
+export const getPatient = (id) => api.get(`/clients/${id}`);
+export const patchPatient = (id, body) => {
+  // If you need to upload a new avatar, pass a FormData and set multipart header.
+  const cfg = body instanceof FormData
+    ? { headers: { 'Content-Type': 'multipart/form-data' } }
+    : {};
+  return api.patch(`/clients/${id}`, body, cfg);
+};
+
+export const getGroup = (id) => api.get(`/groups/${id}`);
+
 
 
 export default api;

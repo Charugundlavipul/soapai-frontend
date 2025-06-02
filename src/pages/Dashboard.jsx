@@ -15,10 +15,12 @@ import CalendarPanel from '../components/CalendarPanel';
 import DeleteClientModal from '../modals/DeleteClientModal';
 import DeleteGroupModal  from '../modals/DeleteGroupModal';
 import EditProfileModal from '../modals/EditProfileModal';
+import { useNavigate } from 'react-router-dom';
 
 import NewClientModal      from '../modals/NewClientModal';
 import NewGroupModal       from '../modals/NewGroupModal';
 import NewAppointmentModal from '../modals/NewAppointmentModal';
+import UploadVideoModal from '../modals/UploadVideoModal';
 
 /* ────────────────────────────────────────────── */
 export default function Dashboard() {
@@ -28,6 +30,17 @@ export default function Dashboard() {
   const [delClient, setDelClient] = useState(null);
   const [delGroup,  setDelGroup]  = useState(null);
   const [editAppt,setEditAppt] = useState(null);
+  const [uploadAppt, setUploadAppt] = useState(null);
+  const nav = useNavigate();
+
+/* open uploader */
+const handleUpload = a =>
+  nav(`/appointments/${a._id}/upload`);
+
+/* open review directly */
+const handleView = (videoId/*, apptId*/) =>
+  nav(`/videos/${videoId}/review`);
+
 
 
 
@@ -117,12 +130,12 @@ useEffect(()=>{
 
             <div className="space-y-2 max-h-[45vh] overflow-y-auto pr-1">
               {dayAppts.length ? dayAppts.map(a => (
-                <AppointmentCard
-                  key={a._id}
-                  a={a}
-                  onUpload={appt => {/* wire later */}}
-                  onEdit={appt => setEditAppt(appt)}
-                />
+               <AppointmentCard
+  key={a._id}
+  a={a}
+  onEdit={setEditAppt}
+/>
+
               )) : (
                 <p className="text-sm text-gray-400 text-center mt-4">
                   No appointments
@@ -214,6 +227,12 @@ useEffect(()=>{
   onClose={()=>setEditAppt(null)}
   onUpdated={u=>setAppts(p=>p.map(x=>x._id===u._id?u:x))}
   onDeleted={d=>setAppts(p=>p.filter(x=>x._id!==d._id))}
+/>
+
+<UploadVideoModal
+  open={!!uploadAppt}
+  appointment={uploadAppt}
+  onClose={()=>setUploadAppt(null)}
 />
 
     </div>
