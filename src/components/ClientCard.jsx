@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { ChevronDownIcon, PencilIcon, TrashIcon } from '@heroicons/react/24/solid';
-
+import Avatar from './Avatar';  
 export default function ClientCard({ c, onEdit, onDelete }) {
   const [open, setOpen] = useState(false);
 
@@ -11,10 +11,11 @@ export default function ClientCard({ c, onEdit, onDelete }) {
     >
       {/* header */}
       <div className="flex items-center gap-3">
-        <img
-          src={c.avatarUrl || '/assets/avatar.png'}
-          className="h-10 w-10 rounded-full object-cover"
-        />
+      <Avatar
+        url={c.avatarUrl}
+        name={c.name}
+        className="w-10 h-10"
+      />
         <div className="flex-1">
           <p className="font-medium">{c.name}</p>
           <p className="text-xs text-gray-500">Age : {c.age ?? '--'}</p>

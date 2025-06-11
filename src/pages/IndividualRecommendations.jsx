@@ -1,71 +1,236 @@
 // src/pages/IndividualRecommendations.jsx
-import { useState, useEffect } from "react";
-import { useParams, useNavigate } from "react-router-dom";
-import Navbar from "../components/Navbar";
-import {
-  ChevronLeft,
-  User,
-  CalendarCheck,
-  ClipboardList
-} from "lucide-react";
+import { useState, useEffect, useRef } from "react";
+import { useParams, useNavigate, useLocation } from "react-router-dom";
 import axios from "axios";
+import Navbar from "../components/Navbar";
+import EditGoalsModal from "../modals/EditGoalsModal";
+import { ChevronLeft, ClipboardList, Zap, Sparkle } from "lucide-react";
+import { marked } from "marked";
+import jsPDF from "jspdf";
+import html2canvas from "html2canvas";
+import Avatar from "../components/Avatar";
+
+
+
+const api = axios.create({
+  baseURL: "http://localhost:4000/api",
+  headers: { Authorization: `Bearer ${localStorage.getItem("jwt")}` },
+});
+
+// Placeholders
+const PLACEHOLDER_VISIT_NOTE = `
+10:00-10:15 am: Expressive language drills; patient produced 8/10 target words without cues.
+10:15-10:30 am: Story retell activity; showed improved sentence structure.
+`.trim();
+
+const PLACEHOLDER_AI_INSIGHTS = [
+  {
+    time: "11:00–11:10",
+    text: "Patient identified rhymes 9/10 times.",
+    tag: "Phonological Awareness",
+    color: "bg-green-100 text-green-800",
+  },
+  {
+    time: "11:11–11:15",
+    text: "Average utterance length increased to 7 words.",
+    tag: "Fluency Improvement",
+    color: "bg-blue-100 text-blue-800",
+  },
+];
 
 export default function IndividualRecommendations() {
   const navigate = useNavigate();
-  const { id: appointmentId } = useParams(); 
+  const { id } = useParams();
+  const location = useLocation();
 
-  //
-  // ─── Hooks at top level ──────────────────────────────────────────────
-  //
+  const fromAppointment = location.pathname.startsWith("/appointments/");
+  const appointmentId = fromAppointment ? id : null;
+  const patientId = !fromAppointment ? id : null;
+
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const [recData, setRecData] = useState(null);
-  const [patientInfo, setPatientInfo] = useState(null);
+  const [error, setError] = useState(false);
+  const [client, setClient] = useState(null);
+  const [recommendation, setRecommendation] = useState(null);
 
+  const [activeTab, setActiveTab] = useState("visitNotes");
+  const [showModal, setShowModal] = useState(false);
+
+  // Activity generator
   const [selectedGoals, setSelectedGoals] = useState([]);
   const [duration, setDuration] = useState("30 Minutes");
+  const [planMD, setPlanMD] = useState("");
+  const [editorHtml, setEditorHtml] = useState("");
+  const [busy, setBusy] = useState(false);
+  const editorRef = useRef(null);
+  const [apptStart, setApptStart] = useState(null); 
 
-  //
-  // ─── Fetch appointment → patient → recommendation ─────────────────────
-  //
+  /* Fetch patient & optional recommendation */
   useEffect(() => {
-    async function fetchData() {
+    (async () => {
       try {
-        // 1) Get the appointment, which has a .patient field
-        const apptRes = await axios.get(
-          `http://localhost:4000/api/appointments/${appointmentId}`,
-          { headers: { Authorization: `Bearer ${localStorage.getItem("jwt")}` } }
-        );
-        const appt = apptRes.data;
-
-        // 2) Get the recommendation object
-        const recRes = await axios.get(
-          `http://localhost:4000/api/appointments/${appointmentId}/recommendations`,
-          { headers: { Authorization: `Bearer ${localStorage.getItem("jwt")}` } }
-        );
-        const rec = recRes.data;
-
-        // 3) Fetch the full Patient record so we can render “About” and “Past History” etc.
-        const patRes = await axios.get(
-          `http://localhost:4000/api/clients/${appt.patient._id}`,
-          { headers: { Authorization: `Bearer ${localStorage.getItem("jwt")}` } }
-        );
-        const pat = patRes.data;
-
-        setRecData(rec);
-        setPatientInfo(pat);
+        let target = patientId;
+        if (fromAppointment) {
+          const { data: appt } = await api.get(`/appointments/${appointmentId}`);
+          if (!appt.patient) throw new Error("No patient linked");
+          target = appt.patient._id;
+          setApptStart(appt.dateTimeStart); 
+        }
+        const [pRes, recRes] = await Promise.all([
+          api.get(`/clients/${target}`),
+          fromAppointment
+            ? api.get(`/appointments/${appointmentId}/recommendations`).catch(() => null)
+            : null,
+        ]);
+        setClient({
+          ...pRes.data,
+          prevVisitNote: pRes.data.prevVisitNote || PLACEHOLDER_VISIT_NOTE,
+        });
+        setRecommendation(recRes?.data || null);
         setLoading(false);
-      } catch (err) {
-        console.error(err);
-        setError(err);
+      } catch (e) {
+        console.error(e);
+        setError(true);
         setLoading(false);
       }
-    }
-    fetchData();
-  }, [appointmentId]);
+    })();
+  }, [appointmentId, patientId, fromAppointment]);
 
-  // ─── Loading / Error states ─────────────────────────────────────
-  if (loading) {
+  /* Save goals */
+  const handleSaveGoals = async (goals) => {
+    try {
+      const { data } = await api.patch(`/clients/${client._id}/goals`, { goals });
+      setClient((c) => ({ ...c, goals: data.goals }));
+      setShowModal(false);
+    } catch {
+      alert("Failed to update goals");
+    }
+  };
+
+  /* Generate activity, then push visit + save PDF as material */
+  const generateActivity = async () => {
+    if (!fromAppointment) {
+      alert("Must be in appointment context.");
+      return;
+    }
+    if (!selectedGoals.length) {
+      alert("Select at least one goal.");
+      return;
+    }
+    const notes = client.prevVisitNote;
+    let rawMd = "";
+    try {
+      setBusy(true);
+      const { data } = await api.post(
+        `/appointments/${appointmentId}/generate-activity`,
+        {
+          memberIds: [client._id],
+          goals: selectedGoals,
+          duration,
+          notes,
+        }
+      );
+      rawMd = data.plan.trim();
+      setPlanMD(rawMd);
+    } catch (e) {
+      alert(e.response?.data?.message || "Generation failed");
+      return;
+    } finally {
+      setBusy(false);
+    }
+
+    // Convert MD → HTML for editing
+    const html = marked.parse(rawMd);
+    setEditorHtml(html);
+    if (editorRef.current) {
+      editorRef.current.innerHTML = html;
+    }
+
+    // Derive activity name from first non-blank line
+    const actName =
+      rawMd
+        .split("\n")
+        .find((l) => l.trim())
+        ?.replace(/^#+\s*/, "") ||
+      "Therapy Activity";
+
+    // Wait a tick to render, then export & save
+    setTimeout(async () => {
+      try {
+        // 1) PDF via html2canvas + jsPDF
+        const canvas = await html2canvas(editorRef.current, { scale: 2 });
+        const img = canvas.toDataURL("image/png");
+        const pdf = new jsPDF({ unit: "pt", format: "a4" });
+        const w = pdf.internal.pageSize.getWidth();
+        const h = (canvas.height * w) / canvas.width;
+        pdf.addImage(img, "PNG", 0, 0, w, h);
+        const pdfBlob = pdf.output("blob");
+        pdf.save("activity_plan.pdf");
+
+        // 2) Push visitHistory
+        const visit = {
+          date:        apptStart || new Date().toISOString(),
+          appointment: appointmentId,
+          type:        "individual",
+          note:        notes, 
+          aiInsights:
+            recommendation?.individualInsights?.[0]?.insights?.length
+              ? recommendation.individualInsights[0].insights
+              : PLACEHOLDER_AI_INSIGHTS,
+          activities: [
+            {
+              name:            actName,
+              description:     rawMd,
+              evidence:        "AI plan covering multiple goals.",
+              associatedGoals: selectedGoals,       // one row, many goals
+              recommended:     true,
+            },
+          ],
+        };
+        await api.post(`/clients/${client._id}/visit`, { visit });
+
+        await api.patch(`/clients/${client._id}/goal-progress/history`, {
+        goals: selectedGoals,           // array of goal names
+        activityName: actName,        // the generated activity title
+        });
+        // 3) Upload PDF as material
+        const fd = new FormData();
+        fd.append("visitDate", apptStart || new Date().toISOString());
+        fd.append("appointment", appointmentId);
+        fd.append(
+          "file",
+          new File([pdfBlob], `plan_${appointmentId}.pdf`, { type: "application/pdf" })
+        );
+        await api.post(`/clients/${client._id}/materials`, fd, {
+          headers: { "Content-Type": "multipart/form-data" },
+        });
+      } catch (err) {
+        console.error(err);
+        alert("Failed to save visit or materials");
+      }
+    }, 100);
+  };
+
+    const downloadPdf = async () => {
+    if (!editorRef.current) return;
+    try {
+      // capture the editable div
+      const canvas = await html2canvas(editorRef.current, { scale: 2 });
+      const imgData = canvas.toDataURL("image/png");
+      // create PDF
+      const pdf = new jsPDF({ unit: "pt", format: "a4" });
+      const pdfWidth = pdf.internal.pageSize.getWidth();
+      const imgProps = pdf.getImageProperties(imgData);
+      const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
+      pdf.addImage(imgData, "PNG", 0, 0, pdfWidth, pdfHeight);
+      pdf.save("activity_plan.pdf");
+    } catch (err) {
+      console.error("PDF export error:", err);
+      alert("Failed to export PDF.");
+    }
+  };
+
+  /* Guards */
+  if (loading)
     return (
       <div className="min-h-screen flex flex-col bg-white">
         <Navbar />
@@ -74,239 +239,288 @@ export default function IndividualRecommendations() {
         </div>
       </div>
     );
-  }
-  if (error) {
+  if (error || !client)
     return (
       <div className="min-h-screen flex flex-col bg-white">
         <Navbar />
         <div className="flex-1 flex items-center justify-center text-red-600">
-          Error loading recommendations.
+          Failed to load patient.
         </div>
       </div>
     );
-  }
 
-  // ─── Render with real data ─────────────────────────────────────────
+  // Extract AI insights array
+  const aiInsights =
+    recommendation?.individualInsights?.[0]?.insights?.length
+      ? recommendation.individualInsights[0].insights
+      : PLACEHOLDER_AI_INSIGHTS;
+
   return (
     <div className="min-h-screen flex flex-col bg-white">
       <Navbar />
 
+      <EditGoalsModal
+        open={showModal}
+        onClose={() => setShowModal(false)}
+        currentGoals={client.goals}
+        onSave={handleSaveGoals}
+      />
+
       <main className="flex-1 p-6 max-w-7xl mx-auto space-y-6">
-        {/* ── Top “Back + Page Title” Row ── */}
         <div className="flex items-center gap-3">
           <button onClick={() => navigate(-1)}>
             <ChevronLeft className="w-6 h-6 text-gray-600 hover:text-gray-800" />
           </button>
           <h2 className="text-2xl font-semibold text-gray-800">
-            Recommendations for Individual
+            Recommendations — {client.name}
           </h2>
         </div>
 
         <div className="grid grid-cols-12 gap-6">
-          {/* ── Left Panel (col-span-4) ── */}
-          <div className="col-span-4 bg-[#F9F9FD] rounded-2xl p-6 flex flex-col space-y-6">
-            {/* ◾ Client Header */}
+          {/* LEFT COLUMN */}
+          <div className="col-span-4 bg-[#F9F9FD] rounded-2xl p-6 flex flex-col">
+            {/* Header */}
             <div className="flex items-center gap-4">
-              <img
-                src={patientInfo.avatarUrl}
-                alt={patientInfo.name}
-                className="w-20 h-20 rounded-full object-cover border-2 border-primary"
+              <Avatar
+                url={client.avatarUrl}
+                name={client.name}
+                className="w-20 h-20 rounded-full border-2 border-primary"
               />
-              <div>
+              <div className="flex-1">
                 <h3 className="text-xl font-semibold text-gray-900">
-                  {patientInfo.name}
+                  {client.name}
                 </h3>
                 <p className="text-sm text-gray-500">
-                  Age: {patientInfo.age}  
+                  Age: {client.age ?? "—"}
                 </p>
-                <p className="text-sm text-gray-500">
-                  Joined:{" "}
-                  {new Date(patientInfo.createdAt).toLocaleDateString()}
-                </p>
-                <p className="text-sm text-gray-500">
-                  Last Visit:{" "}
-                  {new Date(recData.updatedAt).toLocaleDateString()}
-                </p>
-              </div>
-            </div>
-
-            {/* ◾ About Section */}
-            <div className="bg-white rounded-xl p-4 flex flex-col space-y-4 shadow-sm">
-              <h4 className="text-lg font-medium text-gray-800">
-                About {patientInfo.name.split(" ")[0]}
-              </h4>
-              <div className="space-y-1">
-                <div className="flex justify-between">
-                  <span className="text-sm text-gray-600">Name:</span>
-                  <span className="text-sm text-gray-900">{patientInfo.name}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-sm text-gray-600">Age:</span>
-                  <span className="text-sm text-gray-900">{patientInfo.age}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-sm text-gray-600">Past History:</span>
-                  <span className="text-sm text-gray-900">
-                    {patientInfo.pastHistory.join(", ")}
-                  </span>
-                </div>
-              </div>
-              <div>
-                <h5 className="text-sm font-medium text-gray-700 mb-1">
-                  Current Goals:
-                </h5>
-                <div className="flex flex-wrap gap-2">
-                  {patientInfo.goals.map((g) => (
-                    <span
-                      key={g}
-                      className="px-3 py-1 bg-primary/10 text-primary rounded-full text-xs"
-                    >
-                      {g}
-                    </span>
-                  ))}
-                </div>
               </div>
               <button
-                className="mt-auto bg-primary text-white text-sm font-medium rounded-full px-4 py-2 hover:bg-primary/90"
-                onClick={() => {
-                  // open “Edit Goals” modal
-                }}
+                onClick={() => setShowModal(true)}
+                className="ml-auto p-2 rounded-full hover:bg-primary/10"
+                title="Edit Goals"
               >
-                Edit Goals
+                <Zap className="w-5 h-5 text-primary" />
               </button>
             </div>
 
-            {/* ◾ Previous Visit Notes */}
-            <div className="bg-white rounded-xl p-4 space-y-2 shadow-sm flex-1">
+            {/* About box */}
+            <div className="bg-white rounded-xl p-4 mt-6 space-y-4 shadow-sm flex-1">
+              <h4 className="text-lg font-medium text-gray-800">
+                About {client.name.split(" ")[0]}
+              </h4>
+              <p className="text-sm text-gray-700">
+                <span className="font-medium text-gray-600">Past History: </span>
+                {(client.pastHistory || []).join(", ") || "—"}
+              </p>
+              <div>
+                <p className="text-sm font-medium text-gray-700 mb-1">
+                  Current Goals
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {(client.goals || []).length > 0 ? (
+                    client.goals.map((g) => (
+                      <span
+                        key={g}
+                        className="px-3 py-1 bg-primary/10 text-primary rounded-full text-xs"
+                      >
+                        {g}
+                      </span>
+                    ))
+                  ) : (
+                    <span className="px-3 py-1 bg-gray-100 text-gray-600 rounded-full text-xs">
+                      No goals set yet
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Previous Visit Notes */}
+            <div className="bg-white rounded-xl p-4 mt-6 shadow-sm">
               <h4 className="text-lg font-medium text-gray-800">
                 Previous Visit Notes
               </h4>
-              <p className="text-sm text-gray-700 leading-relaxed">
-                {patientInfo.prevHistory || "No notes yet."}
-              </p>
-            </div>
-          </div>
-
-          {/* ── Right Panel (col-span-8) ── */}
-          <div className="col-span-8 flex flex-col space-y-6">
-            {/* ◾ Top Buttons */}
-            <div className="flex justify-end gap-4">
-              <button className="flex items-center gap-2 bg-white border border-gray-200 rounded-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">
-                <ClipboardList className="w-5 h-5 text-gray-500" />
-                Add Visit Notes
-              </button>
-              <button className="flex items-center gap-2 bg-white border border-gray-200 rounded-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">
-                <User className="w-5 h-5 text-gray-500" />
-                Update Goals
-              </button>
-              <button className="flex items-center gap-2 bg-white border border-gray-200 rounded-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">
-                <CalendarCheck className="w-5 h-5 text-gray-500" />
-                Save Visit
-              </button>
-            </div>
-
-            {/* ◾ “AI Insights” Card */}
-            <div className="bg-white rounded-2xl p-6 shadow-sm flex flex-col space-y-4">
-              <h4 className="text-xl font-semibold text-gray-800">
-                AI Insights
-              </h4>
-              <div className="space-y-3">
-                {recData.individualInsights[0].insights.map((ins, idx) => (
-                  <div
-                    key={idx}
-                    className="flex items-center justify-between bg-gray-50 rounded-lg p-3"
-                  >
-                    <div className="text-sm text-gray-800">
-                      {ins.time} – {ins.text}
-                    </div>
-                    <span
-                      className={`${ins.tagColor} text-xs font-medium px-2 py-1 rounded-full`}
-                    >
-                      {ins.tag}
-                    </span>
-                  </div>
+              <div className="text-sm text-gray-700 mt-1 space-y-1 bg-white rounded-md p-3 border">
+                {client.prevVisitNote.split("\n").map((line, i) => (
+                  <p key={i}>{line.replace(/^•\s*/, "• ")}</p>
                 ))}
               </div>
             </div>
+          </div>
 
-            {/* ◾ “Activity Generator” Card */}
-            <div className="bg-white rounded-2xl p-6 shadow-sm flex flex-col space-y-6">
-              <h4 className="text-xl font-semibold text-gray-800">
-                Activity Generator
-              </h4>
-
-              {/* ─ Goals Selector ─ */}
-              <div className="flex flex-col">
-                <label className="text-sm font-medium text-gray-700 mb-1">
-                  Select Activity Goals
-                </label>
-                <select
-                  multiple
-                  value={selectedGoals}
-                  onChange={(e) => {
-                    const opts = Array.from(e.target.selectedOptions).map(
-                      (o) => o.value
-                    );
-                    setSelectedGoals(opts);
-                  }}
-                  className="border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary focus:border-primary"
-                >
-                  {patientInfo.goals.map((g) => (
-                    <option key={g} value={g}>
-                      {g}
-                    </option>
-                  ))}
-                </select>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {selectedGoals.map((g) => (
-                    <span
-                      key={g}
-                      className="flex items-center gap-1 bg-primary/10 text-primary rounded-full px-3 py-1 text-xs"
-                    >
-                      {g}
-                      <button
-                        onClick={() =>
-                          setSelectedGoals((prev) => prev.filter((x) => x !== g))
-                        }
-                        className="text-primary hover:text-primary/70"
-                      >
-                        ×
-                      </button>
-                    </span>
-                  ))}
-                </div>
-              </div>
-
-              {/* ─ Duration Selector ─ */}
-              <div className="flex items-center gap-3">
-                <label className="text-sm font-medium text-gray-700">
-                  Select Duration
-                </label>
-                <select
-                  value={duration}
-                  onChange={(e) => setDuration(e.target.value)}
-                  className="border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary focus:border-primary"
-                >
-                  <option>15 Minutes</option>
-                  <option>30 Minutes</option>
-                  <option>45 Minutes</option>
-                  <option>60 Minutes</option>
-                </select>
-              </div>
-
-              {/* ─ Generate Activity Button ─ */}
-              <button
-                className="mt-auto bg-primary text-white rounded-full px-6 py-2 w-fit hover:bg-primary/90"
-                onClick={() => {
-                  // call API to generate or display an activity
-                }}
-              >
-                Generate Activity
-              </button>
+          {/* RIGHT COLUMN */}
+          <div className="col-span-8 flex flex-col space-y-6">
+            {/* tabs */}
+            <div className="flex gap-4 bg-[#F5F4FB] rounded-2xl px-6 py-4 shadow-sm">
+              <TabBtn
+                id="visitNotes"
+                active={activeTab}
+                setActive={setActiveTab}
+                Icon={ClipboardList}
+                label="Visit Notes"
+              />
+              <TabBtn
+                id="aiInsights"
+                active={activeTab}
+                setActive={setActiveTab}
+                Icon={Zap}
+                label="AI Insights"
+              />
+              <TabBtn
+                id="activityGenerator"
+                active={activeTab}
+                setActive={setActiveTab}
+                Icon={Sparkle}
+                label="Activity Generator"
+              />
             </div>
+
+            {activeTab === "visitNotes" && (
+              <div className="bg-[#F5F4FB] rounded-2xl p-6 shadow-sm">
+                <h4 className="text-xl font-semibold text-gray-800 mb-5">Visit Notes</h4>
+                   <div className="bg-white rounded-md p-4 border text-gray-800 text-sm space-y-1">
+     {client.prevVisitNote
+       .split("\n")
+       .map((line, i) => (
+         <p key={i}>{line.replace(/^•\s*/, "• ")}</p>
+       ))}
+   </div>
+              </div>
+            )}
+
+            {activeTab === "aiInsights" && (
+              <div className="bg-[#F5F4FB] rounded-2xl p-6 shadow-sm space-y-4">
+                <h4 className="text-xl font-semibold text-gray-800 mb-5">AI Insights</h4>
+                {aiInsights.map((ins, i) => (
+                  <InsightRow key={i} ins={ins} />
+                ))}
+              </div>
+            )}
+
+            {activeTab === "activityGenerator" && (
+              <div className="bg-[#F5F4FB] rounded-2xl p-6 shadow-sm space-y-6">
+                {/* Goals picker */}
+                <div className="flex flex-col">
+                  <h4 className="text-xl font-semibold text-gray-800 mb-5">Activity Generator</h4>
+                  <label className="text-sm font-medium text-gray-700 mb-1">
+                    Select Activity Goals
+                  </label>
+                  <select
+                    value=""
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      if (v && !selectedGoals.includes(v)) {
+                        setSelectedGoals([...selectedGoals, v]);
+                      }
+                    }}
+                    className="border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary focus:border-primary"
+                  >
+                    <option value="">Select Goal</option>
+                    {(client.goals || []).map((g) => (
+                      <option key={g} value={g}>
+                        {g}
+                      </option>
+                    ))}
+                  </select>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {selectedGoals.map((g) => (
+                      <span
+                        key={g}
+                        className="flex items-center gap-1 bg-primary text-white rounded-full px-3 py-1 text-sm"
+                      >
+                        {g}
+                        <button
+                          onClick={() =>
+                            setSelectedGoals(selectedGoals.filter((x) => x !== g))
+                          }
+                          className="ml-1 font-bold text-white/80 hover:text-white/60"
+                        >
+                          ×
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <label className="text-sm font-medium text-gray-700">
+                    Duration
+                  </label>
+                  <select
+                    value={duration}
+                    onChange={(e) => setDuration(e.target.value)}
+                    className="border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary focus:border-primary"
+                  >
+                    <option>15 Minutes</option>
+                    <option>30 Minutes</option>
+                    <option>45 Minutes</option>
+                    <option>60 Minutes</option>
+                  </select>
+                </div>
+
+                <button
+                  onClick={generateActivity}
+                  disabled={busy}
+                  className="bg-primary text-white rounded-full px-6 py-2 w-fit hover:bg-primary/90 disabled:opacity-60"
+                >
+                  {busy ? "Generating…" : "Generate Activity"}
+                </button>
+
+                {planMD && (
+                  <div className="space-y-4 w-full">
+                    <div
+                      ref={editorRef}
+                      contentEditable
+                      suppressContentEditableWarning
+                      dangerouslySetInnerHTML={{ __html: editorHtml }}
+                      onInput={(e) =>
+                        setEditorHtml(e.currentTarget.innerHTML)
+                      }
+                      className="min-h-[200px] border rounded-md p-3 bg-white text-sm overflow-auto"
+                    />
+                    <button
+                      onClick={downloadPdf}
+                      className="bg-primary text-white px-4 py-2 rounded-full hover:bg-primary/90"
+                    >
+                      Download as PDF
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </main>
+    </div>
+  );
+}
+
+// Tab button component
+function TabBtn({ id, active, setActive, Icon, label }) {
+  const isActive = id === active;
+  return (
+    <button
+      onClick={() => setActive(id)}
+      className={`flex items-center gap-2 px-9 py-3 text-base font-medium rounded-xl transition border ${
+        isActive
+          ? "bg-primary text-white border-primary"
+          : "bg-white text-primary border-gray-200 hover:bg-[#F5F4FB]"
+      }`}
+    >
+      <Icon className={`w-6 h-6 ${isActive ? "text-white" : "text-primary"}`} />
+      {label}
+    </button>
+  );
+}
+
+// Insight row
+function InsightRow({ ins }) {
+  return (
+    <div className="flex items-center justify-between bg-gray-50 rounded-lg p-3">
+      <div className="text-sm text-gray-800">{ins.text}</div>
+      <span className={`${ins.color} text-xs font-medium px-2 py-1 rounded-full`}>
+        {ins.tag}
+      </span>
     </div>
   );
 }

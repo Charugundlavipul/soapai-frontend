@@ -1,9 +1,10 @@
 // src/pages/SessionReview.jsx
 import { useEffect, useRef, useState } from "react";
-import { useParams, useNavigate }      from "react-router-dom";
-import NewBehaviourModal               from "../modals/NewBehaviourModal";
-import BehaviourPickerModal            from "../modals/BehaviourPickerModal";
-import { getTranscript }               from "../services/api";
+import { useParams, useNavigate } from "react-router-dom";
+import NewGoalModal   from "../modals/NewGoalModal";
+import GoalPickerModal from "../modals/GoalPickerModal";
+import { getTranscript, chatLLM, getVideo, getProfile } from "../services/api";
+
 import {
   ChevronDown,
   Plus,
@@ -14,202 +15,125 @@ import {
   Paperclip,
   Mic2,
 } from "lucide-react";
-import ReactPlayer   from "react-player";
-import Navbar        from "../components/Navbar";
-import EmojiBtn      from "../components/EmojiBtn";
-import { chatLLM, getVideo, getProfile } from "../services/api";
+
+import ReactPlayer from "react-player";
+import Navbar      from "../components/Navbar";
+import EmojiBtn    from "../components/EmojiBtn";
 
 const primaryBtn = "bg-primary hover:bg-primary/90 text-white";
 
 export default function SessionReview() {
-  /* ───── data fetch ───── */
-  const { id } = useParams();       // this is the video ID
-  const nav     = useNavigate();
+  /* ─── basic data ─── */
+  const { id }    = useParams();           // video id
+  const navigate  = useNavigate();
   const [video, setVideo] = useState(null);
-  const [user , setUser ]   = useState(null);
-  const [showTx, setShowTx] = useState(false);
-  const [showNewBeh, setShowNewBeh] = useState(false);
-  const [showPicker, setShowPicker] = useState(false);
+  const [user , setUser ] = useState(null);
 
-  /* 1) Fetch the video document by its ID */
-  useEffect(() => {
-    getVideo(id).then((r) => {
-      setVideo(r.data);
-    });
-  }, [id]);
+  /* UI toggles */
+  const [showTx     , setShowTx     ] = useState(false);
+  const [showNewGoal, setShowNewGoal] = useState(false);
+  const [showPicker , setShowPicker ] = useState(false);
 
-  /* 2) Fetch the current SLP’s profile */
-  useEffect(() => {
-    getProfile().then((r) => setUser(r.data));
-  }, []);
+  /* ─── fetch video + profile ─── */
+  useEffect(() => { getVideo(id).then(r => setVideo(r.data)); }, [id]);
+  useEffect(() => { getProfile().then(r => setUser(r.data));  }, []);
 
-  /* Whenever showTx flips to true, fetch the transcript from the back-end */
+  /* fetch transcript lazily */
   useEffect(() => {
     if (!showTx) return;
     getTranscript(id)
-      .then((r) => {
-        // The API returns an array of { start, end, text }.
-        setVideo((v) => ({ ...v, transcript: r.data }));
-      })
-      .catch(() => {
-        alert("Failed to fetch transcript");
-      });
+      .then(r => setVideo(v => ({ ...v, transcript: r.data })))
+      .catch(() => alert("Failed to fetch transcript"));
   }, [showTx, id]);
 
-  /* Poll for transcript until the back-end has written it into the Video document */
+  /* poll until transcript ready */
   useEffect(() => {
-    if (!video) return;
-    // If we already have transcript data, stop polling
-    if (Array.isArray(video.transcript) && video.transcript.length > 0) return;
-
-    const interval = setInterval(() => {
-      getVideo(id).then((r) => {
-        if (r.data.transcript?.length > 0) {
+    if (!video || (video.transcript?.length ?? 0) > 0) return;
+    const h = setInterval(() => {
+      getVideo(id).then(r => {
+        if (r.data.transcript?.length) {
           setVideo(r.data);
-          clearInterval(interval);
+          clearInterval(h);
         }
       });
     }, 3000);
-
-    return () => clearInterval(interval);
+    return () => clearInterval(h);
   }, [video, id]);
 
-  /* Format seconds → “M:SS” */
-  const fmt = (s) => {
-    const m   = Math.floor(s / 60);
-    const sec = `${Math.floor(s % 60)}`.padStart(2, "0");
-    return `${m}:${sec}`;
-  };
+  /* ─── helpers ─── */
+  const fmt = s => `${Math.floor(s/60)}:${String(Math.floor(s%60)).padStart(2,"0")}`;
 
-  /* ───── chat state ───── */
-  const [msgs, setMsgs] = useState([
-    { role: "assistant", content: "Hello! 👋 I'm your AI assistant…" },
-  ]);
+  /* ─── chat state ─── */
+  const [msgs , setMsgs ] = useState([{ role:"assistant", content:"Hello! 👋 I'm your AI assistant…" }]);
   const [draft, setDraft] = useState("");
   const [files, setFiles] = useState([]);
   const chatEndRef = useRef(null);
-  const replaceVideo = (v) => setVideo(v);
 
-  /* Auto‐scroll to bottom when new message arrives */
-  useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [msgs]);
+  useEffect(() => { chatEndRef.current?.scrollIntoView({behavior:"smooth"}); }, [msgs]);
 
-  /* ───── voice dictation ───── */
+  /* speech-to-text */
   const [listening, setListening] = useState(false);
   const recRef = useRef(null);
   const toggleMic = () => {
-    if (!("webkitSpeechRecognition" in window)) {
-      alert("Speech‐to‐text not supported.");
-      return;
-    }
+    if (!("webkitSpeechRecognition" in window)) return alert("Speech-to-text not supported");
     if (!recRef.current) {
       const R = new window.webkitSpeechRecognition();
-      R.lang = "en-US";
-      R.continuous = true;
-      R.interimResults = false;
-      R.onresult = (e) => {
-        const txt = e.results[0][0].transcript;
-        setDraft((d) => (d ? d + " " : "") + txt);
-      };
+      R.lang="en-US"; R.continuous=true; R.interimResults=false;
+      R.onresult = e => setDraft(d => `${d}${d?" ":""}${e.results[0][0].transcript}`);
       recRef.current = R;
     }
-    if (listening) {
-      recRef.current.stop();
-      setListening(false);
-    } else {
-      recRef.current.start();
-      setListening(true);
-    }
+    listening ? recRef.current.stop() : recRef.current.start();
+    setListening(!listening);
   };
 
-  /* ───── send handler ───── */
-  const doSend = async (e) => {
+  /* send chat */
+  const doSend = async e => {
     e?.preventDefault();
     if (!draft.trim() && !files.length) return;
 
-    const hasFiles = files.length > 0;
-    const userMsg = {
-      role: "user",
-      content: draft,
-      time: new Date(),
-      files: hasFiles ? files : [],
-    };
+    const userMsg = { role:"user", content:draft, time:new Date(), files };
+    setMsgs(m => [...m, userMsg]);
+    setDraft(""); setFiles([]);
 
-    setMsgs((m) => [...m, userMsg]);
-    setDraft("");
-    setFiles([]);
+    const body = files.length
+      ? (() => { const fd=new FormData(); fd.append("messages",JSON.stringify([...msgs,userMsg])); files.forEach(f=>fd.append("attachment",f)); return fd; })()
+      : { messages:[...msgs,userMsg] };
 
-    if (hasFiles) {
-      const fd = new FormData();
-      fd.append("messages", JSON.stringify([...msgs, userMsg]));
-      files.forEach((f) => fd.append("attachment", f));
-      const { data } = await chatLLM(fd);
-      setMsgs((m) => [
-        ...m,
-        { role: "assistant", content: data.reply, time: new Date() },
-      ]);
-    } else {
-      const { data } = await chatLLM({ messages: [...msgs, userMsg] });
-      setMsgs((m) => [
-        ...m,
-        { role: "assistant", content: data.reply, time: new Date() },
-      ]);
-    }
+    const { data } = await chatLLM(body);
+    setMsgs(m => [...m, { role:"assistant", content:data.reply, time:new Date() }]);
   };
 
-  /* ───── loading state ───── */
-  if (!video || !user) {
-    return (
-      <div className="min-h-screen flex flex-col bg-gray-50">
-        <Navbar />
-        <div className="flex-1 flex items-center justify-center text-gray-500">
-          Loading…
-        </div>
-      </div>
-    );
-  }
+  /* loading guard */
+  if (!video || !user) return (
+    <div className="min-h-screen flex flex-col bg-gray-50">
+      <Navbar/>
+      <div className="flex-1 flex items-center justify-center text-gray-500">Loading…</div>
+    </div>
+  );
 
-  /* ───── UI ───── */
+  /* ─── render ─── */
   return (
     <div className="min-h-screen flex flex-col bg-white">
-      <Navbar />
+      <Navbar/>
 
       <main className="p-6 max-w-[1300px] mx-auto flex gap-6">
-        {/* ───── LEFT column ───── */}
-        <div className="space-y-6 flex-shrink-0">
-          {/* video player */}
+        {/* LEFT COLUMN */}
+        <div className="space-y-6 shrink-0">
           <div className="w-[463px] h-[261px] rounded-lg overflow-hidden">
-            <ReactPlayer url={video.fileUrl} controls width="463" height="261" />
+            <ReactPlayer url={video.fileUrl} controls width="463" height="261"/>
           </div>
 
-          {/* behaviours + transcript / selector panel */}
-          <div
-            className="bg-[#FAF8FF] rounded-xl p-6 space-y-4 shadow overflow-hidden"
-            style={{ width: 463, height: 330 }}
-          >
+          <div className="bg-[#FAF8FF] rounded-xl p-6 space-y-4 shadow" style={{width:463,height:330}}>
             {showTx ? (
-              // ─── Transcript‐only mode (hide everything above) ───
               <>
-                <QuickRow
-                  icon={ChevronDown}
-                  label="Video Transcript (Hide)"
-                  onClick={() => setShowTx(false)}
-                />
-                <div
-                  className="overflow-y-auto border border-gray-200 rounded-md"
-                  style={{ maxHeight: "240px" }}
-                >
-                  <table className="w-full text-sm text-left">
+                <QuickRow icon={ChevronDown} label="Video Transcript (Hide)" onClick={()=>setShowTx(false)}/>
+                <div className="overflow-y-auto border rounded-md" style={{maxHeight:240}}>
+                  <table className="w-full text-sm">
                     <thead className="bg-primary/10 text-primary">
-                      <tr>
-                        <th className="px-4 py-2 w-24">Time</th>
-                        <th className="px-4 py-2 w-24">End</th>
-                        <th className="px-4 py-2">Transcript</th>
-                      </tr>
+                      <tr><th className="px-4 py-2 w-24">Start</th><th className="px-4 py-2 w-24">End</th><th className="px-4 py-2">Text</th></tr>
                     </thead>
                     <tbody>
-                      {video.transcript?.map((u, i) => (
+                      {video.transcript?.map((u,i)=>(
                         <tr key={i} className="border-t">
                           <td className="px-4 py-2">{fmt(u.start)}</td>
                           <td className="px-4 py-2">{fmt(u.end)}</td>
@@ -221,66 +145,46 @@ export default function SessionReview() {
                 </div>
               </>
             ) : (
-              // ─── Normal “Selected Behaviours” + controls ───
               <>
-                {/* “Selected Behaviours” header + Change button */}
                 <div className="flex justify-between items-center">
-                  <h3 className="text-lg font-semibold">Selected Behaviours</h3>
-                  <button
-                    onClick={() => setShowPicker(true)}
-                    className="px-4 py-1 rounded-full bg-primary text-white text-sm"
-                  >
-                    Change
-                  </button>
+                  <h3 className="text-lg font-semibold">Selected Goals</h3>
+                  <button onClick={()=>setShowPicker(true)} className="px-4 py-1 rounded-full bg-primary text-white text-sm">Change</button>
                 </div>
 
-                {/* behaviour pills */}
+                {/* pills */}
                 <div className="flex flex-wrap gap-2">
-                  {video.behaviours.map((b) => (
-                    <span
-                      key={b._id}
-                      className="px-3 py-1 bg-white border border-gray-200 rounded-md text-sm"
-                    >
-                      {b.name}
-                    </span>
-                  ))}
+                  {(video.goals ?? []).map((g, i) => {
+                    /* support strings *and* { name, category } objects */
+                    const label =
+                      typeof g === "string"
+                        ? g
+                        : g.category
+                        ? `${g.category}: ${g.name}`
+                        : g.name;
+
+                    return (
+                      <span
+                        key={i}
+                        className="px-3 py-1 bg-white border border-gray-200 rounded-md text-sm"
+                      >
+                        {label}
+                      </span>
+                    );
+                  })}
                 </div>
 
-                {/* Create New Behaviour */}
-                <QuickRow
-                  icon={Plus}
-                  label="Create New Behaviour"
-                  onClick={() => setShowNewBeh(true)}
-                />
 
-                {/* Video Transcript toggle */}
-                <QuickRow
-                  icon={ChevronDown}
-                  label="Video Transcript (Show)"
-                  onClick={() => setShowTx(true)}
-                />
+                {/* <QuickRow icon={Plus} label="Create New Goal" onClick={()=>setShowNewGoal(true)}/> */}
+                <QuickRow icon={ChevronDown} label="Video Transcript (Show)" onClick={()=>setShowTx(true)}/>
+                <QuickRow icon={ChevronDown} label="Visualized Progress" onClick={()=>alert("Coming soon")}/>
 
-                {/* Visualized Progress */}
-                <QuickRow
-                  icon={ChevronDown}
-                  label="Visualized Progress"
-                  onClick={() => alert("Coming soon")}
-                />
-
-                {/* ─── “Get AI Recommendations” button ─── */}
                 <button
                   className="block mx-auto w-80 py-2 rounded-md bg-primary text-white"
-                  onClick={() => {
-                    // Navigate to /appointments/:appointmentId/recommendations
-                    // The video document has a field `appointment` which is the appointment ID.
+                  onClick={()=>{
                     const apptId = video.appointment;
-                    if (apptId) {
-                      nav(`/appointments/${apptId}/recommendations`);
-                    } else {
-                      alert("No appointment linked to this video.");
-                    }
-                  }}
-                >
+                    apptId ? navigate(`/appointments/${apptId}/recommendations`)
+                           : alert("No appointment linked to this video.");
+                  }}>
                   Get AI Recommendations
                 </button>
               </>
@@ -288,139 +192,83 @@ export default function SessionReview() {
           </div>
         </div>
 
-        {/* ───── CHAT column ───── */}
-        <div
-          className="bg-[#FAF8FF] rounded-xl flex flex-col shadow-sm"
-          style={{ width: 591, height: 600 }}
-        >
-          <h3 className="px-6 py-4 border-b text-lg font-semibold text-primary">
-            Chat with SOAP
-          </h3>
+        {/* CHAT COLUMN */}
+        <div className="bg-[#FAF8FF] rounded-xl flex flex-col shadow-sm" style={{width:591,height:600}}>
+          <h3 className="px-6 py-4 border-b text-lg font-semibold text-primary">Chat with SOAP</h3>
 
-          {/* Messages scroll */}
           <div className="flex-1 overflow-y-auto px-6 pt-4 space-y-4">
-            {msgs.map((m, i) =>
-              m.role === "assistant" ? (
-                <Bubble key={i} side="left" avatar="S" msg={m} />
-              ) : (
-                <Bubble key={i} side="right" avatar={user.avatarUrl} msg={m} />
-              )
+            {msgs.map((m,i)=> m.role==="assistant"
+              ? <Bubble key={i} side="left"  avatar="S"             msg={m}/>
+              : <Bubble key={i} side="right" avatar={user.avatarUrl} msg={m}/>
             )}
-            <div ref={chatEndRef} />
+            <div ref={chatEndRef}/>
             <div className="flex gap-4 text-gray-500 pt-2 pb-2">
-              <Volume2 className="w-5 h-5 hover:text-primary cursor-pointer" />
-              <RefreshCcw className="w-5 h-5 hover:text-primary cursor-pointer" />
-              <ThumbsDown className="w-5 h-5 hover:text-primary cursor-pointer" />
+              <Volume2  className="w-5 h-5 hover:text-primary cursor-pointer"/>
+              <RefreshCcw className="w-5 h-5 hover:text-primary cursor-pointer"/>
+              <ThumbsDown className="w-5 h-5 hover:text-primary cursor-pointer"/>
             </div>
           </div>
 
-          {/* Composer */}
-          <form
-            onSubmit={doSend}
-            className="border-t p-4 flex items-center gap-3 bg-[#FAF8FF] relative"
-          >
-            <Paperclip
-              className="w-5 h-5 text-gray-400 cursor-pointer"
-              onClick={() => document.getElementById("fileInput").click()}
-            />
-            <input
-              id="fileInput"
-              type="file"
-              multiple
-              hidden
-              onChange={(e) => setFiles([...files, ...Array.from(e.target.files)])}
-            />
+          <form onSubmit={doSend} className="border-t p-4 flex items-center gap-3 bg-[#FAF8FF]">
+            <Paperclip className="w-5 h-5 text-gray-400 cursor-pointer" onClick={()=>document.getElementById("fileInput").click()}/>
+            <input id="fileInput" type="file" multiple hidden onChange={e=>setFiles([...files, ...Array.from(e.target.files)])}/>
 
-            <input
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              placeholder="Message to SOAP…"
-              className="flex-1 border rounded-full px-3 py-2 bg-white outline-none focus:ring-2 focus:ring-primary"
-            />
+            <input value={draft} onChange={e=>setDraft(e.target.value)} placeholder="Message to SOAP…"
+                   className="flex-1 border rounded-full px-3 py-2 bg-white outline-none focus:ring-2 focus:ring-primary"/>
 
-            <EmojiBtn onSelect={(e) => setDraft((d) => d + e)} />
-            <Mic2
-              className={`w-5 h-5 cursor-pointer ${
-                listening ? "text-primary" : "text-gray-400"
-              }`}
-              onClick={toggleMic}
-            />
+            <EmojiBtn onSelect={e=>setDraft(d=>d+e)}/>
+            <Mic2 className={`w-5 h-5 cursor-pointer ${listening?"text-primary":"text-gray-400"}`} onClick={toggleMic}/>
 
-            <button
-              type="submit"
-              className={`px-4 py-2 rounded-full flex items-center gap-1 ${primaryBtn}`}
-            >
-              <Send className="w-4 h-4" /> Send
+            <button type="submit" className={`px-4 py-2 rounded-full flex items-center gap-1 ${primaryBtn}`}>
+              <Send className="w-4 h-4"/> Send
             </button>
           </form>
         </div>
 
-        {/* Modals */}
-        <NewBehaviourModal
-          open={showNewBeh}
-          onClose={() => setShowNewBeh(false)}
-          video={video}
-          onSaved={(v) => setVideo(v)}
+        {/* ─── Modals ─── */}
+        <NewGoalModal
+          open={showNewGoal}
+          onClose={()=>setShowNewGoal(false)}
+          onSaved={g=> setVideo(v=>({...v, goals:[...(v.goals||[]), g]}))}
         />
-        <BehaviourPickerModal
+
+        <GoalPickerModal
           open={showPicker}
-          onClose={() => setShowPicker(false)}
+          onClose={()=>setShowPicker(false)}
           video={video}
-          onSaved={replaceVideo}
+          onSaved={setVideo}
         />
       </main>
     </div>
   );
 }
 
-/* ─── QuickRow Component ────────────────────────────────────── */
-const QuickRow = ({ icon: Icon, label, onClick }) => (
-  <button
-    onClick={onClick}
-    className="bg-white w-full flex justify-between items-center px-4 py-2 text-primary font-medium rounded-md hover:bg-primary/5"
-  >
-    {label}
-    <Icon className="w-5 h-5" />
+/* Quick utility rows */
+const QuickRow = ({ icon:Icon, label, onClick }) => (
+  <button onClick={onClick} className="bg-white w-full flex justify-between items-center px-4 py-2 text-primary font-medium rounded-md hover:bg-primary/5">
+    {label}<Icon className="w-5 h-5"/>
   </button>
 );
 
-/* ─── Chat bubble ──────────────────────────────────────────── */
+/* Chat bubble */
 const Bubble = ({ side, avatar, msg }) => {
-  const time = msg.time?.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  const left = side === "left";
-
+  const left = side==="left";
+  const time = msg.time?.toLocaleTimeString([], {hour:"2-digit", minute:"2-digit"});
   return (
-    <div className={`flex gap-3 ${left ? "" : "justify-end"}`}>
-      {left && <Avatar avatar={avatar} />}
-
+    <div className={`flex gap-3 ${left?"":"justify-end"}`}>
+      {left && <Avatar avatar={avatar}/>}
       <div className="flex flex-col items-start max-w-[320px]">
-        <div
-          className={`${
-            left ? "bg-white text-gray-800" : "bg-primary text-white"
-          } border border-gray-200 rounded-xl p-3 w-fit`}
-        >
-          <p className="text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</p>
+        <div className={`${left?"bg-white text-gray-800":"bg-primary text-white"} border rounded-xl p-3`}>
+          <p className="text-sm whitespace-pre-wrap leading-relaxed">{msg.content}</p>
         </div>
-        {time && (
-          <span className={`mt-1 text-xs ${left ? "text-gray-400" : "text-white/80 self-end"}`}>
-            {time}
-          </span>
-        )}
+        {time && <span className={`mt-1 text-xs ${left?"text-gray-400":"text-white/80 self-end"}`}>{time}</span>}
       </div>
-
-      {!left && <Avatar avatar={avatar} />}
+      {!left && <Avatar avatar={avatar}/>}
     </div>
   );
 };
 
 const Avatar = ({ avatar }) =>
-  avatar?.startsWith("http") ? (
-    <img src={avatar} className="h-8 w-8 rounded-full object-cover" alt="pfp" />
-  ) : (
-    <div
-      className="h-8 w-8 rounded-full bg-primary text-white flex items-center justify-center font-bold text-xs"
-      aria-label="avatar"
-    >
-      {avatar}
-    </div>
-  );
+  avatar?.startsWith("http")
+    ? <img src={avatar} alt="pfp" className="h-8 w-8 rounded-full object-cover"/>
+    : <div className="h-8 w-8 rounded-full bg-primary text-white flex items-center justify-center font-bold text-xs">{avatar}</div>;

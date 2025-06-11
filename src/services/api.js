@@ -41,8 +41,8 @@ export const uploadVideo = (appointmentId, formData) =>
   api.post(`/appointments/${appointmentId}/video`, formData, {
     headers: { 'Content-Type': 'multipart/form-data' }
   });
-  export const patchVidBeh   = (id, body) =>
-  api.patch(`/videos/${id}/behaviours`, body);
+export const patchVideoGoals = (id, body) =>
+  api.patch(`/videos/${id}/goals`, body);
 
 // src/services/api.js
 export const chatLLM = body => api.post('/chat', body);
@@ -58,7 +58,13 @@ export const patchPatient = (id, body) => {
 };
 
 export const getGroup = (id) => api.get(`/groups/${id}`);
-
+export const getCategories   = () => api.get("/annual-goals");
+export const postCategory    = (body) => api.post("/annual-goals", body);
+export const deleteCategory  = (id) => api.delete(`/annual-goals/${id}`);
+export const updateCategory = (id, body) => api.patch(`/annual-goals/${id}`, body);
+export function deleteGoal(catId, goalId) {
+  return api.delete(`/annual-goals/${catId}/goals/${goalId}`);
+}
 
 
 export default api;

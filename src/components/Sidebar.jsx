@@ -18,10 +18,9 @@ export default function Sidebar() {
         <span className="hidden lg:inline">Clients</span>
       </NavLink>
 
-      {/* Behaviours — uses the SAME presets */}
-      <NavLink to="/behaviours" className={({ isActive }) => `${link} ${isActive ? active : ''}`}>
+      <NavLink to="/annual-goals" className={({ isActive }) => `${link} ${isActive ? active : ''}`}>
         <BookOpenIcon className="h-6 w-6" />
-        <span className="hidden lg:inline">Behaviours</span>
+        <span className="hidden lg:inline">Annual Goals</span>
       </NavLink>
     </aside>
   );
