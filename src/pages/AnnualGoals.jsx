@@ -1,3 +1,6 @@
+// ────────────────────────────────────
+// src/pages/AnnualGoals.jsx
+// ────────────────────────────────────
 import { useEffect, useState } from "react";
 import Navbar  from "../components/Navbar";
 import Sidebar from "../components/Sidebar";
@@ -5,125 +8,160 @@ import {
   getCategories,
   postCategory,
   updateCategory,
-  deleteGoal,                         // ➊  new helper
+  deleteCategory,
+  deleteGoal,
 } from "../services/api";
 import {
   ChevronDownIcon,
   PlusIcon,
   PencilSquareIcon,
-  XMarkIcon,                          // ➋  delete icon
+  TrashIcon,
 } from "@heroicons/react/24/solid";
-import AnnualGoalModal from "../modals/AnnualGoalModal"; // edit-category modal
+import AnnualGoalModal from "../modals/AnnualGoalModal";
 
-/* ───── 5 fixed category names ───── */
-const CAT_ORDER = [
-  "Communication",
-  "Social Skills",
-  "Academic Skills",
-  "Behaviour",
-  "Other",
-];
+/* ───────────────────────────────────── */
 
 export default function AnnualGoals() {
-  const [list,     setList]   = useState([]);     // all categories
-  const [goalCat,  setGoalCat] = useState(null);  // “add goal” modal target
-  const [editCat,  setEditCat] = useState(null);  // “edit category” modal
+  const [cats,     setCats   ] = useState([]);
+  const [goalCat,  setGoalCat] = useState(null);           // “Add goal” modal
+  const [editCat,  setEditCat] = useState(null);           // “Edit cat” modal
+  const [confirm,  setConfirm] = useState(null);           // { type, catId, goalId?, label }
 
-  /* initial fetch */
-  useEffect(() => { getCategories().then(r => setList(r.data)); }, []);
+  /* initial fetch – make sure NOT to return the Promise */
+  useEffect(() => { refresh(); }, []);
+  const refresh = () => getCategories().then(r => setCats(r.data));
 
-  /* helpers */
+  /* replace / insert a category in state */
   const upsert = (cat) =>
-    setList(prev => {
+    setCats(prev => {
       const i = prev.findIndex(c => c._id === cat._id);
-      if (i === -1) return [...prev, cat];
-      const copy = [...prev];
-      copy[i] = cat;
-      return copy;
+      return i === -1 ? [...prev, cat] : prev.map((c,idx)=>idx===i?cat:c);
     });
 
-  /* delete-goal handler */
-  async function handleDelGoal(catId, goalId) {
+  /* ---------- confirmation helpers ---------- */
+  const askDelCat  = (id,name)      =>
+    setConfirm({ type:"cat",  catId:id,           label:`category “${name}”` });
+  const askDelGoal = (catId,goal)   =>
+    setConfirm({ type:"goal", catId, goalId:(goal._id||goal.name),
+                 label:`goal “${goal.name}”` });
+
+  async function doDelete() {
+    if (!confirm) return;
     try {
-      await deleteGoal(catId, goalId);
-      setList(prev =>
-        prev.map(c =>
-          c._id === catId
-            ? { ...c, goals: c.goals.filter(g => (g._id || g.name) !== goalId) }
+      if (confirm.type === "cat") {
+        await deleteCategory(confirm.catId);
+        setCats(prev => prev.filter(c => c._id !== confirm.catId));
+      } else {
+        await deleteGoal(confirm.catId, confirm.goalId);
+        setCats(prev => prev.map(c =>
+          c._id === confirm.catId
+            ? { ...c, goals: c.goals.filter(g => (g._id||g.name) !== confirm.goalId) }
             : c
-        )
-      );
+        ));
+      }
     } catch (e) {
-      alert(e.response?.data?.message || "Failed to delete goal");
+      alert(e.response?.data?.message || "Delete failed");
+    } finally {
+      setConfirm(null);
     }
   }
 
-  /* quick map by name for O(1) lookup */
-  const map = Object.fromEntries(list.map(c => [c.name, c]));
+  /* ---------- render ---------- */
+ return (
+   
+   <div className="min-h-screen flex flex-col font-sans">
 
-  return (
-    <div className="min-h-screen flex">
-      <Sidebar />
-      <div className="flex-1 flex flex-col">
-        <Navbar />
-        <main className="p-6 space-y-6">
-          <h2 className="text-2xl font-semibold text-primary mb-4">
-            Annual Goals
-          </h2>
+     {/* –– purple bar full-width –– */}
+     <Navbar />
 
-          {CAT_ORDER.map(name => (
-            <CategoryCard
-              key={name}
-              cat={map[name] ?? { name, description: "", goals: [] }}
-              onAddGoal={() =>
-                setGoalCat(map[name] ?? { name })            /* may not exist yet */
-              }
-              onEdit={() =>
-                setEditCat(map[name] ?? { name, description: "" })
-              }
-              onDeleteGoal={handleDelGoal}                    /* ➌  pass handler */
+     {/* –– sidebar (left)    scrollable main (right) –– */}
+     <div className="flex flex-1">
+
+       <Sidebar className="h-screen" />
+
+       {/* 2️⃣  main work-area */}
+       <main className="flex-1 p-6 space-y-6">
+          <h2 className="text-2xl font-semibold text-primary">Annual Goals</h2>
+
+          {cats.map(cat => (
+            <CategoryTile
+              key={cat._id}
+              cat={cat}
+              onAddGoal    ={() => setGoalCat(cat)}
+              onEdit       ={() => setEditCat(cat)}
+              onDeleteCat  ={() => askDelCat(cat._id, cat.name)}
+              onDeleteGoal ={goal => askDelGoal(cat._id, goal)}
             />
           ))}
+
+          <button
+            onClick={() => setEditCat({ name:"", description:"", goals:[] })}
+            className="inline-flex items-center gap-1 text-primary hover:underline"
+          >
+            <PlusIcon className="h-5 w-5"/> New Category
+          </button>
         </main>
       </div>
 
-      {/* edit-category modal */}
+      {/* create / edit category */}
       <AnnualGoalModal
-        open={!!editCat}
+        open    = {!!editCat}
         category={editCat}
-        onClose={() => setEditCat(null)}
-        onSaved={upsert}
+        onClose ={() => setEditCat(null)}
+        onSaved ={upsert}
       />
 
-      {/* add-goal modal */}
+      {/* add-goal */}
       <GoalModal
-        open={!!goalCat}
+        open    = {!!goalCat}
         category={goalCat}
-        onClose={() => setGoalCat(null)}
-        onSaved={upsert}
+        onClose ={() => setGoalCat(null)}
+        onSaved ={upsert}
       />
+
+      {/* confirm dialog */}
+      {confirm && (
+        <ConfirmModal
+          text={`Are you sure you want to delete ${confirm.label}?`}
+          onCancel={() => setConfirm(null)}
+          onConfirm={doDelete}
+        />
+      )}
     </div>
   );
 }
 
-/* ───────────── Category card ───────────── */
-function CategoryCard({ cat, onAddGoal, onEdit, onDeleteGoal }) {
+/* ────────── accordion tile ────────── */
+function CategoryTile({ cat, onAddGoal, onEdit, onDeleteCat, onDeleteGoal }) {
   const [open, setOpen] = useState(false);
 
   return (
-    <div className="border rounded-xl p-4 space-y-2">
-      {/* header row */}
+    <div className="border rounded-xl p-4">
+      {/* header */}
       <div
-        className="flex justify-between items-center cursor-pointer"
+        className="flex justify-between items-start cursor-pointer"
         onClick={() => setOpen(o => !o)}
       >
-        <p className="font-medium">{cat.name}</p>
+        <div className="max-w-md">
+          <p className="font-medium truncate">{cat.name}</p>
+          <p className="text-xs text-gray-600 truncate">
+            {cat.description || "— No description —"}
+          </p>
+        </div>
 
-        <div className="flex items-center gap-3">
+        <div
+          className="flex items-center gap-3"
+          onClick={e => e.stopPropagation()}            /* keep accordion state */
+        >
           <PencilSquareIcon
             title="Edit category"
-            onClick={e => { e.stopPropagation(); onEdit(); }}
+            onClick={() => { onEdit(); }}
             className="h-4 w-4 text-primary cursor-pointer"
+          />
+          <TrashIcon
+            title="Delete category"
+            onClick={() => { onDeleteCat(); }}
+            className="h-4 w-4 text-red-500 cursor-pointer"
           />
           <ChevronDownIcon
             className={`h-4 w-4 transition ${open ? "rotate-180" : ""}`}
@@ -133,55 +171,80 @@ function CategoryCard({ cat, onAddGoal, onEdit, onDeleteGoal }) {
 
       {/* body */}
       {open && (
-        <>
-          <p className="text-sm text-gray-600">
-            {cat.description || "— No description —"}
-          </p>
+        <div className="mt-4 space-y-3">
+          <div className="flex justify-between items-center">
+            <p className="font-medium">Goals</p>
+            <button
+              onClick={() => { onAddGoal(); }}
+              className="inline-flex items-center gap-1 text-sm text-primary hover:underline"
+            >
+              <PlusIcon className="h-4 w-4" /> New goal
+            </button>
+          </div>
 
-          <ul className="list-disc ml-5 space-y-1 text-sm">
-            {cat.goals.map(g => (
-              <li key={g._id || g.name} className="flex items-start gap-2 group">
-                <div>
-                  <span className="font-medium">{g.name}</span>
-                  {g.description && (
-                    <> — <span className="text-gray-600">{g.description}</span></>
-                  )}
-                </div>
-                <XMarkIcon
-                  title="Delete goal"
-                  onClick={() => onDeleteGoal(cat._id, g._id || g.name)}
-                  className="h-3 w-3 mt-0.5 cursor-pointer text-gray-400 opacity-0
-                             group-hover:opacity-100 hover:text-red-500 transition"
-                />
-              </li>
-            ))}
-
-            {cat.goals.length === 0 && (
-              <li className="italic text-gray-400">No goals yet</li>
+          <ul className="space-y-1">
+            {cat.goals.length ? (
+              cat.goals.map(g => (
+                <li
+                  key={g._id || g.name}
+                  className="bg-gray-50 rounded-md px-3 py-2 flex justify-between"
+                >
+                  <div className="text-sm">
+                    <p className="font-medium">{g.name}</p>
+                    {g.description && (
+                      <p className="text-xs text-gray-600">
+                        {g.description}
+                      </p>
+                    )}
+                  </div>
+                  <TrashIcon
+                    title="Delete goal"
+                    onClick={() => { onDeleteGoal(g); }}   /* wrapped – no Promise returned */
+                    className="h-4 w-4 text-gray-400 hover:text-red-500 cursor-pointer"
+                  />
+                </li>
+              ))
+            ) : (
+              <p className="italic text-gray-400 text-sm">No goals yet</p>
             )}
           </ul>
-
-          <button
-            onClick={onAddGoal}
-            className="mt-2 inline-flex items-center gap-1 text-sm text-primary hover:underline"
-          >
-            <PlusIcon className="h-4 w-4" /> New Goal
-          </button>
-        </>
+        </div>
       )}
     </div>
   );
 }
 
-/* ───── “Add one goal” modal (unchanged) ───── */
+/* ───────── confirmation modal ───────── */
+function ConfirmModal({ text, onCancel, onConfirm }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+      <div className="bg-white rounded-xl p-6 w-full max-w-xs space-y-5 shadow-lg">
+        <p className="text-center text-sm">{text}</p>
+        <div className="flex justify-center gap-4">
+          <button
+            onClick={onCancel}
+            className="px-4 py-2 rounded-lg bg-gray-200 hover:bg-gray-300"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={onConfirm}
+            className="px-4 py-2 rounded-lg bg-red-600 text-white"
+          >
+            Delete
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ───────── add-goal modal (unchanged logic) ───────── */
 function GoalModal({ open, onClose, category, onSaved }) {
   const [gName, setGName] = useState("");
   const [gDesc, setGDesc] = useState("");
 
-  useEffect(() => {
-    if (open) { setGName(""); setGDesc(""); }
-  }, [open]);
-
+  useEffect(() => { if (open) { setGName(""); setGDesc(""); } }, [open]);
   if (!open) return null;
 
   async function save() {
@@ -195,7 +258,7 @@ function GoalModal({ open, onClose, category, onSaved }) {
       saved = data;
     } else {
       const { data } = await postCategory({
-        name:  category.name,
+        name: category.name,
         goals: [{ name: gName.trim(), description: gDesc.trim() }],
       });
       saved = data;
@@ -207,7 +270,9 @@ function GoalModal({ open, onClose, category, onSaved }) {
   return (
     <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/30">
       <div className="bg-white rounded-xl p-6 w-full max-w-md shadow-lg space-y-5">
-        <h3 className="text-lg font-semibold">Add Goal — {category.name}</h3>
+        <h3 className="text-lg font-semibold">
+          Add Goal — {category.name || "New Category"}
+        </h3>
 
         <input
           value={gName}
@@ -223,13 +288,11 @@ function GoalModal({ open, onClose, category, onSaved }) {
           className="w-full border rounded-md px-3 py-2 resize-none"
         />
 
-        <div className="flex justify-end gap-2">
-          <button onClick={onClose} className="px-4 py-2 bg-gray-200 rounded-lg">
-            Cancel
-          </button>
-          <button onClick={save} className="px-4 py-2 bg-primary text-white rounded-lg">
-            Save
-          </button>
+        <div className="flex justify-end gap-2 pt-1">
+          <button onClick={onClose}
+                  className="px-4 py-2 bg-gray-200 rounded-lg">Cancel</button>
+          <button onClick={save}
+                  className="px-4 py-2 bg-primary text-white rounded-lg">Save</button>
         </div>
       </div>
     </div>

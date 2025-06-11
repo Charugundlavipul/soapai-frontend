@@ -333,14 +333,20 @@ export default function SessionPatientView() {
             {/* Content */}
             {activeTab === "visitNotes" && (
               <div className="bg-[#F5F4FB] rounded-2xl p-6 shadow-sm">
-                <pre className="whitespace-pre-wrap text-sm bg-white rounded-md p-4 border">
-                  {visit.note || PLACEHOLDER_VISIT_NOTE}
-                </pre>
+                <h4 className="text-xl font-semibold text-gray-800 mb-5">Visit Notes</h4>
+                <div className="bg-white rounded-md p-3 border text-gray-800 text-sm space-y-1">
+  {(visit.note || PLACEHOLDER_VISIT_NOTE)
+    .split("\n")
+    .map((line, i) => (
+      <p key={i}>{line.replace(/^•\s*/, "• ")}</p>
+    ))}
+</div>
               </div>
             )}
 
             {activeTab === "insights" && (
               <div className="bg-[#F5F4FB] rounded-2xl p-6 shadow-sm space-y-4">
+                <h4 className="text-xl font-semibold text-gray-800 mb-5">AI Insights</h4>
                 {insights.map((ins, i) => (
                   <div
                     key={i}
@@ -361,6 +367,7 @@ export default function SessionPatientView() {
               <div className="bg-[#F5F4FB] rounded-2xl p-6 shadow-sm space-y-6">
                 {/* Goals Select */}
                 <div className="flex flex-col">
+                  <h4 className="text-xl font-semibold text-gray-800 mb-5">Activity Generator</h4>
                   <label className="text-sm font-medium text-gray-700 mb-1">
                     Select Activity Goals
                   </label>

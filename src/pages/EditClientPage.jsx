@@ -91,7 +91,7 @@ export default function EditClientPage() {
           })()
         : rest;
 
-      const { data } = await axios.patch(
+      const { data } = await axios.put(
         `http://localhost:4000/api/clients/${id}`,
         body,
         { headers }
@@ -140,22 +140,24 @@ export default function EditClientPage() {
     );
 
   /* ───── helpers ───── */
-  const renderVisitRows = () =>
-    (client.visitHistory?.length
-      ? client.visitHistory
-      : ["22 Apr 2025", "27 Apr 2025", "31 Apr 2025", "2 Mar 2025", "10 Mar 2025"]
-    ).map((v,i) => (
-        <VisitRow
-          key={v._id ?? i}
-          v={{
-            dateString: v.dateString ??
-              new Date(v.date).toLocaleDateString("en-US", {
-                day:"numeric", month:"short", year:"numeric"
-              }),
-            note: v.note ?? "— placeholder —"
-          }}
-        />
-      ));
+// 🔄 replace the whole helper with this
+const renderVisitRows = () =>
+  client.visitHistory?.map((v, i) => (
+    <VisitRow
+      key={v._id ?? i}
+      v={{
+        dateString:
+          v.dateString ??
+          new Date(v.date).toLocaleDateString("en-US", {
+            day: "numeric",
+            month: "short",
+            year: "numeric",
+          }),
+        note: v.note ?? "No notes.",
+      }}
+    />
+  ));
+
 
   /* ───── UI ───── */
   return (
@@ -380,15 +382,21 @@ function RightTabs({
         ))}
       </div>
 
-      {/* ------- visit history ------- */}
-      {activeTab === "visitHistory" && (
-        <div className="bg-[#F5F4FB] rounded-2xl p-8 shadow-sm space-y-4">
-          <h4 className="text-xl font-semibold text-gray-800">
-            Visit History
-          </h4>
-          {renderVisitRows()}
-        </div>
-      )}
+    
+    {activeTab === "visitHistory" && (
+      <div className="bg-[#F5F4FB] rounded-2xl p-8 shadow-sm space-y-4">
+        <h4 className="text-xl font-semibold text-gray-800">
+          Visit History
+        </h4>
+
+        {client.visitHistory?.length ? (
+          renderVisitRows()
+        ) : (
+          <p className="text-sm text-gray-500">No visit history recorded.</p>
+        )}
+      </div>
+    )}
+
 
       {/* ------- materials ------- */}
       {activeTab === "materials" && (

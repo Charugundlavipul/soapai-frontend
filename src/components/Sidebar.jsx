@@ -13,10 +13,10 @@ export default function Sidebar() {
         <span className="hidden lg:inline">Dashboard</span>
       </NavLink>
 
-      <NavLink to="/clients" className={({ isActive }) => `${link} ${isActive ? active : ''}`}>
+      {/* <NavLink to="/clients" className={({ isActive }) => `${link} ${isActive ? active : ''}`}>
         <UsersIcon className="h-6 w-6" />
         <span className="hidden lg:inline">Clients</span>
-      </NavLink>
+      </NavLink> */}
 
       <NavLink to="/annual-goals" className={({ isActive }) => `${link} ${isActive ? active : ''}`}>
         <BookOpenIcon className="h-6 w-6" />

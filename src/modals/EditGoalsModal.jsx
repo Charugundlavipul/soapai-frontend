@@ -62,7 +62,7 @@ export default function EditGoalsModal({ open, onClose, currentGoals, onSave }) 
             <option value="">Select goal …</option>
             {remain.map(g => (
               <option key={g.name} value={g.name}>
-                {g.category} – {g.name}
+                {g.category} – {g.name} 
               </option>
             ))}
           </Select>
