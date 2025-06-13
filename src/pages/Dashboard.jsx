@@ -37,6 +37,9 @@ export default function Dashboard() {
   const [showProfile, setShowProfile] = useState(false);
 
   const [selectedDay, setSelectedDay] = useState(new Date());
+    // Track expanded states for cards
+    const [expandedClients, setExpandedClients] = useState(new Set());
+    const [expandedGroups, setExpandedGroups] = useState(new Set());
 
   // Search/filter state
   const [qClient, setQClient] = useState('');
@@ -147,22 +150,34 @@ export default function Dashboard() {
           <section className="space-y-4 p-6 bg-[#FAF8FF] rounded-xl">
             <h3 className="text-2xl font-semibold text-primary">Clients</h3>
 
-            <SearchBar
-              placeholder="Search For Clients"
-              onSearch={q => setQClient(q)}
-            />
+              <SearchBar
+                  placeholder="Search For Clients"
+                  value={qClient}
+                  onChange={setQClient}
+                  onSearch={setQClient}
+              />
 
             <AddButton text="New Client" onClick={() => setShowClient(true)} />
 
             <div className="space-y-1 max-h-[70vh] overflow-y-auto pr-1">
-              {filClients.map(c => (
-                <ClientCard
-                  key={c._id}
-                  c={c}
-                  onDelete={c => setDelClient(c)}
-                  onEdit={c => nav(`/clients/${c._id}/edit`)}
-                />
-              ))}
+                {filClients.map(c => (
+                    <ClientCard
+                        key={c._id}
+                        c={c}
+                        onDelete={c => setDelClient(c)}
+                        onEdit={c => nav(`/clients/${c._id}/edit`)}
+                        isExpanded={expandedClients.has(c._id)}
+                        onToggleExpanded={() => {
+                            const newExpanded = new Set(expandedClients);
+                            if (newExpanded.has(c._id)) {
+                                newExpanded.delete(c._id);
+                            } else {
+                                newExpanded.add(c._id);
+                            }
+                            setExpandedClients(newExpanded);
+                        }}
+                    />
+                ))}
             </div>
           </section>
 
@@ -170,21 +185,33 @@ export default function Dashboard() {
           <section className="space-y-4 p-6 bg-[#FAF8FF] rounded-xl">
             <h3 className="text-2xl font-semibold text-primary">Group Sessions</h3>
 
-            <SearchBar
-              placeholder="Search For Group Sessions"
-              onSearch={q => setQGroup(q)}
-            />
+              <SearchBar
+                  placeholder="Search For Group Sessions"
+                  value={qGroup}
+                  onChange={setQGroup}
+                  onSearch={setQGroup}
+              />
 
             <AddButton text="New Group Session" onClick={() => setShowGroup(true)} />
 
             <div className="space-y-1 max-h-[70vh] overflow-y-auto pr-1">
-              {filGroups.map(g => (
-                <GroupCard
-                  key={g._id}
-                  g={g}
-                  onDelete={g => setDelGroup(g)}
-                />
-              ))}
+                {filGroups.map(g => (
+                    <GroupCard
+                        key={g._id}
+                        g={g}
+                        onDelete={g => setDelGroup(g)}
+                        isExpanded={expandedGroups.has(g._id)}
+                        onToggleExpanded={() => {
+                            const newExpanded = new Set(expandedGroups);
+                            if (newExpanded.has(g._id)) {
+                                newExpanded.delete(g._id);
+                            } else {
+                                newExpanded.add(g._id);
+                            }
+                            setExpandedGroups(newExpanded);
+                        }}
+                    />
+                ))}
             </div>
           </section>
         </main>
