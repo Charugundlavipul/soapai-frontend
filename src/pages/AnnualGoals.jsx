@@ -17,6 +17,7 @@ import {
   PencilSquareIcon,
   TrashIcon,
 } from "@heroicons/react/24/solid";
+import SavingToast from "../components/savingToast";
 import AnnualGoalModal from "../modals/AnnualGoalModal";
 
 /* ───────────────────────────────────── */
@@ -26,17 +27,21 @@ export default function AnnualGoals() {
   const [goalCat,  setGoalCat] = useState(null);           // “Add goal” modal
   const [editCat,  setEditCat] = useState(null);           // “Edit cat” modal
   const [confirm,  setConfirm] = useState(null);           // { type, catId, goalId?, label }
+  const [toast, setToast] = useState({ show: false, message: "", type: "success" });
 
   /* initial fetch – make sure NOT to return the Promise */
   useEffect(() => { refresh(); }, []);
   const refresh = () => getCategories().then(r => setCats(r.data));
 
+
   /* replace / insert a category in state */
-  const upsert = (cat) =>
-      setCats(prev => {
-        const i = prev.findIndex(c => c._id === cat._id);
-        return i === -1 ? [...prev, cat] : prev.map((c,idx)=>idx===i?cat:c);
-      });
+  const upsert = (cat) => {
+    setCats(prev => {
+      const i = prev.findIndex(c => c._id === cat._id);
+      return i === -1 ? [...prev, cat] : prev.map((c,idx)=>idx===i?cat:c);
+    });
+    setToast({ show: true, message: "Changes saved successfully!", type: "success" });
+  };
 
   /* ---------- confirmation helpers ---------- */
   const askDelCat  = (id,name)      =>
@@ -51,6 +56,7 @@ export default function AnnualGoals() {
       if (confirm.type === "cat") {
         await deleteCategory(confirm.catId);
         setCats(prev => prev.filter(c => c._id !== confirm.catId));
+        setToast({ show: true, message: "Category deleted successfully!", type: "success" });
       } else {
         await deleteGoal(confirm.catId, confirm.goalId);
         setCats(prev => prev.map(c =>
@@ -58,9 +64,11 @@ export default function AnnualGoals() {
                 ? { ...c, goals: c.goals.filter(g => (g._id||g.name) !== confirm.goalId) }
                 : c
         ));
+        setToast({ show: true, message: "Goal deleted successfully!", type: "success" });
       }
     } catch (e) {
       alert(e.response?.data?.message || "Delete failed");
+      setToast({ show: true, message: "Delete failed. Please try again.", type: "error" });
     } finally {
       setConfirm(null);
     }
@@ -127,6 +135,14 @@ export default function AnnualGoals() {
                 onConfirm={doDelete}
             />
         )}
+
+        {/* Toast notification */}
+        <SavingToast
+            show={toast.show}
+            message={toast.message}
+            type={toast.type}
+            onClose={() => setToast({ show: false, message: "", type: "success" })}
+        />
       </div>
   );
 }
