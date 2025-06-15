@@ -19,8 +19,10 @@ import EditProfileModal from '../modals/EditProfileModal';
 
 import NewClientModal from '../modals/NewClientModal';
 import NewGroupModal from '../modals/NewGroupModal';
-import NewAppointmentModal from '../modals/NewAppointmentModal';
+import NewAppointmentModal from '../modals/UpdatedAppointmentModal';
 import UploadVideoModal from '../modals/UploadVideoModal';
+
+
 
 /* ────────────────────────────────────────────── */
 export default function Dashboard() {
