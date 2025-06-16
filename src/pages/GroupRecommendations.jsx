@@ -3,7 +3,7 @@ import { useState, useEffect, useRef } from "react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import axios from "axios";
 import Navbar from "../components/Navbar";
-import EditGoalsModal from "../modals/EditGoalsModal";
+import GoalPickerModal from "../modals/GoalPickerModal";
 import { ChevronLeft, ClipboardList, Users, Sparkle } from "lucide-react";
 import { marked } from "marked";
 import jsPDF from "jspdf";
@@ -50,6 +50,9 @@ export default function GroupRecommendations() {
   /* ─── State ─── */
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
+  const videoFromState = location.state?.video || null;
+  const [video, setVideo] = useState(videoFromState);
+
   const [group, setGroup] = useState(null);
   const [recommendation, setRecommendation] = useState(null);
   const [activeTab, setActiveTab] = useState("visitNotes");
@@ -60,14 +63,15 @@ export default function GroupRecommendations() {
 
   // Activity‐Generator controls
   const [selectedMembers, setSelectedMembers] = useState([]);
-  const [selectedGoals, setSelectedGoals] = useState([]);
   const [duration, setDuration] = useState("30 Minutes");
-
+  const [showPicker, setShowPicker] = useState(false);
   // Receive “plan” from back‐end (in Markdown), then convert to HTML
   const [planMD, setPlanMD] = useState("");
   const [editorHtml, setEditorHtml] = useState("");
   const [busy, setBusy] = useState(false);
   const editorRef = useRef(null);
+  const initialGoals = video?.goals?.map(g=>typeof g==="string"?g:g.name) || [];
+  const [selectedGoals, setSelectedGoals] = useState(initialGoals);
 
   // Reference to the contentEditable DIV for html2canvas → PDF
 
@@ -92,6 +96,8 @@ export default function GroupRecommendations() {
             : null,
         ]);
 
+        const goalsForUi =
+          initialGoals.length > 0 ? initialGoals : grpRes.data.goals || [];
         setGroup(grpRes.data);
         setRecommendation(recRes?.data || null);
         setLoading(false);
@@ -322,12 +328,16 @@ const downloadPdf = async () => {
   return (
     <Shell>
       {/* Edit Goals modal */}
-      <EditGoalsModal
-        open={showModal}
-        onClose={() => setShowModal(false)}
-        currentGoals={group.goals}
-        onSave={handleSaveGoals}
-      />
+      <GoalPickerModal
+        open={showPicker}
+        onClose={() => setShowPicker(false)}
+        video={video}
+        onSaved={(updated) => {
+    setVideo(updated);
+    const names = updated.goals.map((g) => (typeof g === "string" ? g : g.name));
+    setSelectedGoals(names);
+  }}
+/>
 
       {/* Header row */}
       <div className="flex items-center gap-3 mb-6">
@@ -342,12 +352,13 @@ const downloadPdf = async () => {
       <div className="grid grid-cols-12 gap-6">
         {/* ─── LEFT PANEL ─── */}
           <LeftPanel
-    group={group}
-    setShowModal={setShowModal}
-    visitNoteOf={visitNoteOf}
-    onViewSession={(pid) =>
-      navigate(`/appointments/${appointmentId}/patient/${pid}`)
-    }
+  group={group}
+  selectedGoals={selectedGoals}
+  setShowPicker={setShowPicker}
+  visitNoteOf={visitNoteOf}
+  onViewSession={(pid) =>
+    navigate(`/appointments/${appointmentId}/patient/${pid}`)
+  }
   />
 
         {/* ─── RIGHT PANEL ─── */}
@@ -419,8 +430,13 @@ const TabBar = ({ active, setActive }) => {
 };
 
 /* ─── Left Panel ─── */
-/* ─── Left Panel ─── */
-const LeftPanel = ({ group, setShowModal, visitNoteOf, onViewSession }) => {
+const LeftPanel = ({
+  group,
+  selectedGoals,
+  setShowPicker,
+  visitNoteOf,
+  onViewSession
+}) => {
   return (
     <div className="col-span-4 bg-[#F9F9FD] rounded-2xl p-6 flex flex-col space-y-6">
       {/* ── Header ── */}
@@ -475,14 +491,14 @@ const LeftPanel = ({ group, setShowModal, visitNoteOf, onViewSession }) => {
 
       {/* ── Goals ── */}
       <div className="bg-white rounded-xl p-4 shadow-sm flex flex-col flex-1 space-y-4">
-        <h4 className="text-lg font-medium text-gray-800">Group Goals</h4>
-        <div className="flex flex-wrap gap-2">
-          {(group.goals ?? []).length > 0 ? (
-            group.goals.map((g) => (
-              <span
-                key={g}
-                className="px-3 py-1 bg-primary/10 text-primary rounded-full text-xs"
-              >
+  <h4 className="text-lg font-medium text-gray-800">Goals for This Video</h4>
+  <div className="flex flex-wrap gap-2">
+    {selectedGoals.length ? (
+      selectedGoals.map((g) => (
+        <span
+          key={g}
+          className="px-3 py-1 bg-primary/10 text-primary rounded-full text-xs"
+        >
                 {g}
               </span>
             ))
@@ -491,7 +507,7 @@ const LeftPanel = ({ group, setShowModal, visitNoteOf, onViewSession }) => {
           )}
         </div>
         <button
-          onClick={() => setShowModal(true)}
+          onClick={() => setShowPicker(true)}
           className="mt-auto w-full py-2 bg-primary text-white text-sm font-medium rounded-lg hover:bg-primary/90"
         >
           Edit Goals
@@ -601,6 +617,7 @@ const ActivityTab = ({
     <DropdownChips
       label="Goals"
       placeholder="Select Goals"
+      /* options come from the same merged list we just put on group.goals */
       options={(group.goals ?? []).map((g) => ({ id: g, label: g }))}
       selected={selectedGoals}
       setSelected={setSelectedGoals}

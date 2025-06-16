@@ -182,8 +182,17 @@ export default function SessionReview() {
                   className="block mx-auto w-80 py-2 rounded-md bg-primary text-white"
                   onClick={()=>{
                     const apptId = video.appointment;
-                    apptId ? navigate(`/appointments/${apptId}/recommendations`)
-                           : alert("No appointment linked to this video.");
+                    apptId
+                        ? navigate(`/appointments/${apptId}/recommendations`, {
+                      state: {
+                        video,
+                        selectedGoals:
+                          (video.goals ?? []).map((g) =>
+                            typeof g === "string" ? g : g.name
+                          ),
+                      },
+                    })
+                      : alert("No appointment linked to this video.");
                   }}>
                   Get AI Recommendations
                 </button>

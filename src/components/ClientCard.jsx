@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ChevronDownIcon, PencilIcon, TrashIcon } from '@heroicons/react/24/solid';
+import { ChevronDownIcon, TrashIcon, UserCircleIcon } from '@heroicons/react/24/solid';
 import Avatar from './Avatar';  
 export default function ClientCard({ c, onEdit, onDelete }) {
   const [open, setOpen] = useState(false);
@@ -40,7 +40,7 @@ export default function ClientCard({ c, onEdit, onDelete }) {
               onClick={e => { e.stopPropagation(); onEdit?.(c); }}
               className="flex-1 py-1 rounded bg-primary text-white text-sm flex items-center justify-center gap-1"
             >
-              <PencilIcon className="h-4 w-4" /> Edit Client
+              <UserCircleIcon className="h-4 w-4" /> View Client
             </button>
             <button
               onClick={e => { e.stopPropagation(); onDelete(c); }}

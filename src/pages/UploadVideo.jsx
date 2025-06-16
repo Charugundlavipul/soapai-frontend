@@ -173,14 +173,14 @@ export default function UploadVideo() {
 
             {/* goal selector */}
             <div ref={ddRef} className="relative max-w-xs">
-              <label className="block text-sm font-medium mb-2">Goals</label>
+              <label className="block text-sm font-medium mb-2">Short-Term Session Goal</label>
               <button
                 type="button"
                 onClick={() => setDdOpen(o => !o)}
                 className="w-full flex justify-between items-center px-3 py-2 border rounded-md bg-white"
               >
                 <span className="text-gray-500">
-                  + Click to Select Goal ({goalBank.length})
+                  + Click to Select Session Goal ({goalBank.length})
                 </span>
                 <ChevronDown className="w-4 h-4 text-gray-400" />
               </button>

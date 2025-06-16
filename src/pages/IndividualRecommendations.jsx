@@ -3,21 +3,19 @@ import { useState, useEffect, useRef } from "react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import axios from "axios";
 import Navbar from "../components/Navbar";
-import EditGoalsModal from "../modals/EditGoalsModal";
+import GoalPickerModal from "../modals/GoalPickerModal";
 import { ChevronLeft, ClipboardList, Zap, Sparkle } from "lucide-react";
 import { marked } from "marked";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
 import Avatar from "../components/Avatar";
 
-
-
 const api = axios.create({
   baseURL: "http://localhost:4000/api",
   headers: { Authorization: `Bearer ${localStorage.getItem("jwt")}` },
 });
 
-// Placeholders
+/* ───── Placeholders ───── */
 const PLACEHOLDER_VISIT_NOTE = `
 10:00-10:15 am: Expressive language drills; patient produced 8/10 target words without cues.
 10:15-10:30 am: Story retell activity; showed improved sentence structure.
@@ -40,47 +38,58 @@ const PLACEHOLDER_AI_INSIGHTS = [
 
 export default function IndividualRecommendations() {
   const navigate = useNavigate();
-  const { id } = useParams();
+  const { id }   = useParams();
   const location = useLocation();
 
+  /* ─── Route context ─── */
   const fromAppointment = location.pathname.startsWith("/appointments/");
-  const appointmentId = fromAppointment ? id : null;
-  const patientId = !fromAppointment ? id : null;
+  const appointmentId   = fromAppointment ? id : null;
+  const patientId       = !fromAppointment ? id : null;
 
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(false);
-  const [client, setClient] = useState(null);
+  /* ─── Video & goal state passed from SessionReview ─── */
+  const videoFromState  = location.state?.video || null;
+  const [video, setVideo] = useState(videoFromState);
+
+  const initialGoals =
+    video?.goals?.map((g) => (typeof g === "string" ? g : g.name)) || [];
+  const [selectedGoals, setSelectedGoals] = useState(initialGoals);
+
+  /* ─── Basic remote data ─── */
+  const [loading, setLoading]        = useState(true);
+  const [error,   setError]          = useState(false);
+  const [client,  setClient]         = useState(null);
   const [recommendation, setRecommendation] = useState(null);
 
-  const [activeTab, setActiveTab] = useState("visitNotes");
-  const [showModal, setShowModal] = useState(false);
-
-  // Activity generator
-  const [selectedGoals, setSelectedGoals] = useState([]);
-  const [duration, setDuration] = useState("30 Minutes");
-  const [planMD, setPlanMD] = useState("");
-  const [editorHtml, setEditorHtml] = useState("");
-  const [busy, setBusy] = useState(false);
+  /* ─── UI state ─── */
+  const [activeTab, setActiveTab]     = useState("visitNotes");
+  const [showPicker, setShowPicker]   = useState(false);
+  const [duration,   setDuration]     = useState("30 Minutes");
+  const [planMD,     setPlanMD]       = useState("");
+  const [editorHtml, setEditorHtml]   = useState("");
+  const [busy,       setBusy]         = useState(false);
   const editorRef = useRef(null);
-  const [apptStart, setApptStart] = useState(null); 
+  const [apptStart, setApptStart]     = useState(null);
 
-  /* Fetch patient & optional recommendation */
+  /* ─── Fetch patient (and optional recommendation) ─── */
   useEffect(() => {
     (async () => {
       try {
-        let target = patientId;
+        let targetId = patientId;
         if (fromAppointment) {
           const { data: appt } = await api.get(`/appointments/${appointmentId}`);
           if (!appt.patient) throw new Error("No patient linked");
-          target = appt.patient._id;
-          setApptStart(appt.dateTimeStart); 
+          targetId   = appt.patient._id;
+          setApptStart(appt.dateTimeStart);
         }
         const [pRes, recRes] = await Promise.all([
-          api.get(`/clients/${target}`),
+          api.get(`/clients/${targetId}`),
           fromAppointment
-            ? api.get(`/appointments/${appointmentId}/recommendations`).catch(() => null)
+            ? api
+                .get(`/appointments/${appointmentId}/recommendations`)
+                .catch(() => null)
             : null,
         ]);
+
         setClient({
           ...pRes.data,
           prevVisitNote: pRes.data.prevVisitNote || PLACEHOLDER_VISIT_NOTE,
@@ -95,141 +104,129 @@ export default function IndividualRecommendations() {
     })();
   }, [appointmentId, patientId, fromAppointment]);
 
-  /* Save goals */
-  const handleSaveGoals = async (goals) => {
-    try {
-      const { data } = await api.patch(`/clients/${client._id}/goals`, { goals });
-      setClient((c) => ({ ...c, goals: data.goals }));
-      setShowModal(false);
-    } catch {
-      alert("Failed to update goals");
-    }
-  };
+  /* ─── Generate activity, push visitHistory, save PDF & materials ─── */
+const generateActivity = async () => {
+  if (!fromAppointment) {
+    alert("Must be in appointment context.");
+    return;
+  }
+  if (!selectedGoals.length) {
+    alert("Select at least one goal.");
+    return;
+  }
 
-  /* Generate activity, then push visit + save PDF as material */
-  const generateActivity = async () => {
-    if (!fromAppointment) {
-      alert("Must be in appointment context.");
-      return;
-    }
-    if (!selectedGoals.length) {
-      alert("Select at least one goal.");
-      return;
-    }
-    const notes = client.prevVisitNote;
-    let rawMd = "";
-    try {
-      setBusy(true);
-      const { data } = await api.post(
-        `/appointments/${appointmentId}/generate-activity`,
-        {
-          memberIds: [client._id],
-          goals: selectedGoals,
-          duration,
-          notes,
-        }
-      );
-      rawMd = data.plan.trim();
-      setPlanMD(rawMd);
-    } catch (e) {
-      alert(e.response?.data?.message || "Generation failed");
-      return;
-    } finally {
-      setBusy(false);
-    }
-
-    // Convert MD → HTML for editing
-    const html = marked.parse(rawMd);
-    setEditorHtml(html);
-    if (editorRef.current) {
-      editorRef.current.innerHTML = html;
-    }
-
-    // Derive activity name from first non-blank line
-    const actName =
-      rawMd
-        .split("\n")
-        .find((l) => l.trim())
-        ?.replace(/^#+\s*/, "") ||
-      "Therapy Activity";
-
-    // Wait a tick to render, then export & save
-    setTimeout(async () => {
-      try {
-        // 1) PDF via html2canvas + jsPDF
-        const canvas = await html2canvas(editorRef.current, { scale: 2 });
-        const img = canvas.toDataURL("image/png");
-        const pdf = new jsPDF({ unit: "pt", format: "a4" });
-        const w = pdf.internal.pageSize.getWidth();
-        const h = (canvas.height * w) / canvas.width;
-        pdf.addImage(img, "PNG", 0, 0, w, h);
-        const pdfBlob = pdf.output("blob");
-        pdf.save("activity_plan.pdf");
-
-        // 2) Push visitHistory
-        const visit = {
-          date:        apptStart || new Date().toISOString(),
-          appointment: appointmentId,
-          type:        "individual",
-          note:        notes, 
-          aiInsights:
-            recommendation?.individualInsights?.[0]?.insights?.length
-              ? recommendation.individualInsights[0].insights
-              : PLACEHOLDER_AI_INSIGHTS,
-          activities: [
-            {
-              name:            actName,
-              description:     rawMd,
-              evidence:        "AI plan covering multiple goals.",
-              associatedGoals: selectedGoals,       // one row, many goals
-              recommended:     true,
-            },
-          ],
-        };
-        await api.post(`/clients/${client._id}/visit`, { visit });
-
-        await api.patch(`/clients/${client._id}/goal-progress/history`, {
-        goals: selectedGoals,           // array of goal names
-        activityName: actName,        // the generated activity title
-        });
-        // 3) Upload PDF as material
-        const fd = new FormData();
-        fd.append("visitDate", apptStart || new Date().toISOString());
-        fd.append("appointment", appointmentId);
-        fd.append(
-          "file",
-          new File([pdfBlob], `plan_${appointmentId}.pdf`, { type: "application/pdf" })
-        );
-        await api.post(`/clients/${client._id}/materials`, fd, {
-          headers: { "Content-Type": "multipart/form-data" },
-        });
-      } catch (err) {
-        console.error(err);
-        alert("Failed to save visit or materials");
+  const notes = client.prevVisitNote;
+  let rawMd = "";
+  try {
+    setBusy(true);
+    const { data } = await api.post(
+      `/appointments/${appointmentId}/generate-activity`,
+      {
+        memberIds: [client._id],
+        goals: selectedGoals,
+        duration,
+        notes,
       }
-    }, 100);
-  };
+    );
+    rawMd = data.plan.trim();
+    setPlanMD(rawMd);
+  } catch (e) {
+    alert(e.response?.data?.message || "Generation failed");
+    return;
+  } finally {
+    setBusy(false);
+  }
 
-    const downloadPdf = async () => {
-    if (!editorRef.current) return;
+  /* convert MD → HTML for editor */
+  const html = marked.parse(rawMd);
+  setEditorHtml(html);
+  if (editorRef.current) editorRef.current.innerHTML = html;
+
+  /* derive activity name from first non-blank line */
+  const actName =
+    rawMd.split("\n").find((l) => l.trim())?.replace(/^#+\s*/, "") ||
+    "Therapy Activity";
+
+  /* wait a tick so the editor renders, then export & save */
+  setTimeout(async () => {
     try {
-      // capture the editable div
+      
       const canvas = await html2canvas(editorRef.current, { scale: 2 });
-      const imgData = canvas.toDataURL("image/png");
-      // create PDF
-      const pdf = new jsPDF({ unit: "pt", format: "a4" });
-      const pdfWidth = pdf.internal.pageSize.getWidth();
-      const imgProps = pdf.getImageProperties(imgData);
-      const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
-      pdf.addImage(imgData, "PNG", 0, 0, pdfWidth, pdfHeight);
+      const img    = canvas.toDataURL("image/png");
+      const pdf    = new jsPDF({ unit: "pt", format: "a4" });
+      const w      = pdf.internal.pageSize.getWidth();
+      const h      = (canvas.height * w) / canvas.width;
+      pdf.addImage(img, "PNG", 0, 0, w, h);
+      const pdfBlob = pdf.output("blob");
       pdf.save("activity_plan.pdf");
-    } catch (err) {
-      console.error("PDF export error:", err);
-      alert("Failed to export PDF.");
-    }
-  };
 
-  /* Guards */
+      /* 2️⃣  push visitHistory */
+      const visit = {
+        date:        apptStart || new Date().toISOString(),
+        appointment: appointmentId,
+        type:        "individual",
+        note:        notes,
+        aiInsights:
+          recommendation?.individualInsights?.[0]?.insights?.length
+            ? recommendation.individualInsights[0].insights
+            : PLACEHOLDER_AI_INSIGHTS,
+        activities: [
+          {
+            name:            actName,
+            description:     rawMd,
+            evidence:        "AI plan covering multiple goals.",
+            associatedGoals: selectedGoals,
+            recommended:     true,
+          },
+        ],
+      };
+      await api.post(`/clients/${client._id}/visit`, { visit });
+
+      /* 3️⃣  update goal-progress */
+      await api.patch(`/clients/${client._id}/goal-progress/history`, {
+        goals: selectedGoals,
+        activityName: actName,
+      });
+
+      /* 4️⃣  upload the PDF as material */
+      const fd = new FormData();
+      fd.append("visitDate",   apptStart || new Date().toISOString());
+      fd.append("appointment", appointmentId);
+      fd.append(
+        "file",
+        new File([pdfBlob], `plan_${appointmentId}.pdf`, {
+          type: "application/pdf",
+        })
+      );
+      await api.post(`/clients/${client._id}/materials`, fd, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+    } catch (err) {
+      console.error(err);
+      alert("Failed to save visit or materials");
+    }
+  }, 100);
+};
+
+/* ─── Quick standalone “export PDF” for manually-edited plan ─── */
+const downloadPdf = async () => {
+  if (!editorRef.current) return;
+  try {
+    const canvas  = await html2canvas(editorRef.current, { scale: 2 });
+    const imgData = canvas.toDataURL("image/png");
+    const pdf     = new jsPDF({ unit: "pt", format: "a4" });
+    const w       = pdf.internal.pageSize.getWidth();
+    const h       = (canvas.height * w) / canvas.width;
+    pdf.addImage(imgData, "PNG", 0, 0, w, h);
+    pdf.save("activity_plan.pdf");
+  } catch (err) {
+    console.error("PDF export error:", err);
+    alert("Failed to export PDF.");
+  }
+};
+
+
+  /* ─── Guards ─── */
   if (loading)
     return (
       <div className="min-h-screen flex flex-col bg-white">
@@ -249,24 +246,33 @@ export default function IndividualRecommendations() {
       </div>
     );
 
-  // Extract AI insights array
+  /* ─── AI insights fallback ─── */
   const aiInsights =
     recommendation?.individualInsights?.[0]?.insights?.length
       ? recommendation.individualInsights[0].insights
       : PLACEHOLDER_AI_INSIGHTS;
 
+  /* ─── Render ─── */
   return (
     <div className="min-h-screen flex flex-col bg-white">
       <Navbar />
 
-      <EditGoalsModal
-        open={showModal}
-        onClose={() => setShowModal(false)}
-        currentGoals={client.goals}
-        onSave={handleSaveGoals}
+      {/* GoalPickerModal (video-level goals) */}
+      <GoalPickerModal
+        open={showPicker}
+        onClose={() => setShowPicker(false)}
+        video={video}
+        onSaved={(updated) => {
+          setVideo(updated);
+          const names = updated.goals.map((g) =>
+            typeof g === "string" ? g : g.name
+          );
+          setSelectedGoals(names);
+        }}
       />
 
       <main className="flex-1 p-6 max-w-7xl mx-auto space-y-6">
+        {/* Page header */}
         <div className="flex items-center gap-3">
           <button onClick={() => navigate(-1)}>
             <ChevronLeft className="w-6 h-6 text-gray-600 hover:text-gray-800" />
@@ -277,80 +283,85 @@ export default function IndividualRecommendations() {
         </div>
 
         <div className="grid grid-cols-12 gap-6">
-          {/* LEFT COLUMN */}
-          <div className="col-span-4 bg-[#F9F9FD] rounded-2xl p-6 flex flex-col">
-            {/* Header */}
-            <div className="flex items-center gap-4">
-              <Avatar
-                url={client.avatarUrl}
-                name={client.name}
-                className="w-20 h-20 rounded-full border-2 border-primary"
-              />
-              <div className="flex-1">
-                <h3 className="text-xl font-semibold text-gray-900">
-                  {client.name}
-                </h3>
-                <p className="text-sm text-gray-500">
-                  Age: {client.age ?? "—"}
-                </p>
-              </div>
-              <button
-                onClick={() => setShowModal(true)}
-                className="ml-auto p-2 rounded-full hover:bg-primary/10"
-                title="Edit Goals"
-              >
-                <Zap className="w-5 h-5 text-primary" />
-              </button>
-            </div>
+          {/* ─── LEFT COLUMN ─── */}
+          {/* ─── LEFT COLUMN ─── */}
+<div className="col-span-4 bg-[#F9F9FD] rounded-2xl p-6 flex flex-col space-y-6">
+  {/* Header */}
+  <div className="flex items-center gap-4">
+    <Avatar
+      url={client.avatarUrl}
+      name={client.name}
+      className="w-20 h-20 rounded-full border-2 border-primary"
+    />
+    <div className="flex-1">
+      <h3 className="text-xl font-semibold text-gray-900">{client.name}</h3>
+      <p className="text-sm text-gray-500">Age: {client.age ?? "—"}</p>
+      <p className="text-sm text-gray-500">
+        Past History:&nbsp;
+        {(client.pastHistory || []).join(", ") || "—"}
+      
+    </p>
+  </div>
+  </div>
 
-            {/* About box */}
-            <div className="bg-white rounded-xl p-4 mt-6 space-y-4 shadow-sm flex-1">
-              <h4 className="text-lg font-medium text-gray-800">
-                About {client.name.split(" ")[0]}
-              </h4>
-              <p className="text-sm text-gray-700">
-                <span className="font-medium text-gray-600">Past History: </span>
-                {(client.pastHistory || []).join(", ") || "—"}
-              </p>
-              <div>
-                <p className="text-sm font-medium text-gray-700 mb-1">
-                  Current Goals
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  {(client.goals || []).length > 0 ? (
-                    client.goals.map((g) => (
-                      <span
-                        key={g}
-                        className="px-3 py-1 bg-primary/10 text-primary rounded-full text-xs"
-                      >
-                        {g}
-                      </span>
-                    ))
-                  ) : (
-                    <span className="px-3 py-1 bg-gray-100 text-gray-600 rounded-full text-xs">
-                      No goals set yet
-                    </span>
-                  )}
-                </div>
-              </div>
-            </div>
+ <div className="bg-white rounded-xl p-4 mt-6 space-y-4 shadow-sm flex-1">
+  <h4 className="text-lg font-medium text-gray-800">Client Goals</h4>
+  <div className="flex flex-wrap gap-2">
+    {(client.goals || []).length ? (
+      client.goals.map((g) => (
+        <span
+          key={g}
+          className="px-3 py-1 bg-primary/10 text-primary rounded-full text-xs"
+        >
+          {g}
+        </span>
+      ))
+    ) : (
+      <span className="text-xs italic text-gray-400">None yet</span>
+    )}
+  </div>
+</div>
 
-            {/* Previous Visit Notes */}
-            <div className="bg-white rounded-xl p-4 mt-6 shadow-sm">
-              <h4 className="text-lg font-medium text-gray-800">
-                Previous Visit Notes
-              </h4>
-              <div className="text-sm text-gray-700 mt-1 space-y-1 bg-white rounded-md p-3 border">
-                {client.prevVisitNote.split("\n").map((line, i) => (
-                  <p key={i}>{line.replace(/^•\s*/, "• ")}</p>
-                ))}
-              </div>
-            </div>
-          </div>
+  {/* Goals FOR THIS VIDEO */}
+  <div className="bg-white rounded-xl p-4 shadow-sm flex flex-col flex-1 space-y-4">
+    <h4 className="text-lg font-medium text-gray-800">Short Term Session Goals</h4>
+    <div className="flex flex-wrap gap-2">
+      {selectedGoals.length ? (
+        selectedGoals.map((g) => (
+          <span
+            key={g}
+            className="px-3 py-1 bg-primary/10 text-primary rounded-full text-xs"
+          >
+            {g}
+          </span>
+        ))
+      ) : (
+        <span className="text-xs italic text-gray-400">None yet</span>
+      )}
+    </div>
+    <button
+      onClick={() => setShowPicker(true)}
+      className="mt-auto w-full py-2 bg-primary text-white text-sm font-medium rounded-lg hover:bg-primary/90"
+    >
+      Edit Goals
+    </button>
+  </div>
 
-          {/* RIGHT COLUMN */}
+  {/* Previous Visit Notes */}
+  <div className="bg-white rounded-xl p-4 shadow-sm">
+    <h4 className="text-lg font-medium text-gray-800">Previous Visit Notes</h4>
+    <div className="text-sm text-gray-700 mt-1 space-y-1 bg-white rounded-md p-3 border">
+      {client.prevVisitNote.split("\n").map((line, i) => (
+        <p key={i}>{line.replace(/^•\s*/, "• ")}</p>
+      ))}
+    </div>
+  </div>
+</div>
+
+
+          {/* ─── RIGHT COLUMN ─── */}
           <div className="col-span-8 flex flex-col space-y-6">
-            {/* tabs */}
+            {/* Tab bar */}
             <div className="flex gap-4 bg-[#F5F4FB] rounded-2xl px-6 py-4 shadow-sm">
               <TabBtn
                 id="visitNotes"
@@ -375,33 +386,41 @@ export default function IndividualRecommendations() {
               />
             </div>
 
+            {/* ---- VISIT NOTES ---- */}
             {activeTab === "visitNotes" && (
               <div className="bg-[#F5F4FB] rounded-2xl p-6 shadow-sm">
-                <h4 className="text-xl font-semibold text-gray-800 mb-5">Visit Notes</h4>
-                   <div className="bg-white rounded-md p-4 border text-gray-800 text-sm space-y-1">
-     {client.prevVisitNote
-       .split("\n")
-       .map((line, i) => (
-         <p key={i}>{line.replace(/^•\s*/, "• ")}</p>
-       ))}
-   </div>
+                <h4 className="text-xl font-semibold text-gray-800 mb-5">
+                  Visit Notes
+                </h4>
+                <div className="bg-white rounded-md p-4 border text-gray-800 text-sm space-y-1">
+                  {client.prevVisitNote.split("\n").map((line, i) => (
+                    <p key={i}>{line.replace(/^•\s*/, "• ")}</p>
+                  ))}
+                </div>
               </div>
             )}
 
+            {/* ---- AI INSIGHTS ---- */}
             {activeTab === "aiInsights" && (
               <div className="bg-[#F5F4FB] rounded-2xl p-6 shadow-sm space-y-4">
-                <h4 className="text-xl font-semibold text-gray-800 mb-5">AI Insights</h4>
+                <h4 className="text-xl font-semibold text-gray-800 mb-5">
+                  AI Insights
+                </h4>
                 {aiInsights.map((ins, i) => (
                   <InsightRow key={i} ins={ins} />
                 ))}
               </div>
             )}
 
+            {/* ---- ACTIVITY GENERATOR ---- */}
             {activeTab === "activityGenerator" && (
               <div className="bg-[#F5F4FB] rounded-2xl p-6 shadow-sm space-y-6">
-                {/* Goals picker */}
+                <h4 className="text-xl font-semibold text-gray-800 mb-5">
+                  Activity Generator
+                </h4>
+
+                {/* Goal chips */}
                 <div className="flex flex-col">
-                  <h4 className="text-xl font-semibold text-gray-800 mb-5">Activity Generator</h4>
                   <label className="text-sm font-medium text-gray-700 mb-1">
                     Select Activity Goals
                   </label>
@@ -409,9 +428,8 @@ export default function IndividualRecommendations() {
                     value=""
                     onChange={(e) => {
                       const v = e.target.value;
-                      if (v && !selectedGoals.includes(v)) {
+                      if (v && !selectedGoals.includes(v))
                         setSelectedGoals([...selectedGoals, v]);
-                      }
                     }}
                     className="border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary focus:border-primary"
                   >
@@ -422,6 +440,7 @@ export default function IndividualRecommendations() {
                       </option>
                     ))}
                   </select>
+
                   <div className="mt-2 flex flex-wrap gap-2">
                     {selectedGoals.map((g) => (
                       <span
@@ -431,7 +450,9 @@ export default function IndividualRecommendations() {
                         {g}
                         <button
                           onClick={() =>
-                            setSelectedGoals(selectedGoals.filter((x) => x !== g))
+                            setSelectedGoals(
+                              selectedGoals.filter((x) => x !== g)
+                            )
                           }
                           className="ml-1 font-bold text-white/80 hover:text-white/60"
                         >
@@ -442,6 +463,7 @@ export default function IndividualRecommendations() {
                   </div>
                 </div>
 
+                {/* Duration */}
                 <div className="flex items-center gap-3">
                   <label className="text-sm font-medium text-gray-700">
                     Duration
@@ -495,7 +517,7 @@ export default function IndividualRecommendations() {
   );
 }
 
-// Tab button component
+/* ─── Tab button ─── */
 function TabBtn({ id, active, setActive, Icon, label }) {
   const isActive = id === active;
   return (
@@ -513,7 +535,7 @@ function TabBtn({ id, active, setActive, Icon, label }) {
   );
 }
 
-// Insight row
+/* ─── Insight row ─── */
 function InsightRow({ ins }) {
   return (
     <div className="flex items-center justify-between bg-gray-50 rounded-lg p-3">
