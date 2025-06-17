@@ -1,10 +1,29 @@
 "use client"
-import { Clock } from "lucide-react"
+import { useEffect, useRef } from "react"
+import { Clock } from 'lucide-react'
 
 export default function CustomTimePicker({ value, onChange, placeholder = "--:--", isOpen, onToggle }) {
+    const popupRef = useRef(null)
     const hours = Array.from({ length: 12 }, (_, i) => i + 1)
     const minutes = Array.from({ length: 60 }, (_, i) => i.toString().padStart(2, "0"))
     const periods = ["AM", "PM"]
+
+    // Click outside to close
+    useEffect(() => {
+        const handleClickOutside = (event) => {
+            if (popupRef.current && !popupRef.current.contains(event.target) && isOpen) {
+                onToggle(false)
+            }
+        }
+
+        if (isOpen) {
+            document.addEventListener('mousedown', handleClickOutside)
+        }
+
+        return () => {
+            document.removeEventListener('mousedown', handleClickOutside)
+        }
+    }, [isOpen, onToggle])
 
     const formatDisplayTime = (timeStr) => {
         if (!timeStr) return placeholder
@@ -41,7 +60,7 @@ export default function CustomTimePicker({ value, onChange, placeholder = "--:--
     const currentTime = getCurrentTime()
 
     return (
-        <div className="relative flex-1">
+        <div className="relative flex-1" ref={popupRef}>
             <button
                 type="button"
                 onClick={() => onToggle(!isOpen)}
@@ -52,7 +71,7 @@ export default function CustomTimePicker({ value, onChange, placeholder = "--:--
             </button>
 
             {isOpen && (
-                <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-lg z-50">
+                <div className="absolute top-0 left-0 right-0 bg-white border border-gray-200 rounded-xl shadow-xl z-[60]">
                     <div className="p-4">
                         <div className="flex gap-2">
                             <div className="flex-1">

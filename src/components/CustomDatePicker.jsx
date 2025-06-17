@@ -1,11 +1,13 @@
 "use client"
 
-import { useState } from "react"
-import { ChevronLeft, ChevronRight, Calendar } from "lucide-react"
+import { useState, useEffect, useRef } from "react"
+import { ChevronLeft, ChevronRight, Calendar, ChevronDown } from 'lucide-react'
 
 export default function CustomDatePicker({ value, onChange, label, isOpen, onToggle }) {
     const [currentMonth, setCurrentMonth] = useState(new Date())
-    const [showMonthYearPicker, setShowMonthYearPicker] = useState(false)
+    const [showMonthPicker, setShowMonthPicker] = useState(false)
+    const [showYearPicker, setShowYearPicker] = useState(false)
+    const containerRef = useRef(null)
 
     const months = [
         "January",
@@ -21,6 +23,23 @@ export default function CustomDatePicker({ value, onChange, label, isOpen, onTog
         "November",
         "December",
     ]
+
+    // Handle click outside to close popup
+    useEffect(() => {
+        const handleClickOutside = (event) => {
+            if (containerRef.current && !containerRef.current.contains(event.target) && isOpen) {
+                onToggle(false)
+            }
+        }
+
+        if (isOpen) {
+            document.addEventListener('mousedown', handleClickOutside)
+        }
+
+        return () => {
+            document.removeEventListener('mousedown', handleClickOutside)
+        }
+    }, [isOpen, onToggle])
 
     const formatDisplayDate = (dateStr) => {
         if (!dateStr) return "mm/dd/yyyy"
@@ -67,9 +86,22 @@ export default function CustomDatePicker({ value, onChange, label, isOpen, onTog
         })
     }
 
-    const handleMonthYearSelect = (month, year) => {
-        setCurrentMonth(new Date(year, month))
-        setShowMonthYearPicker(false)
+    const handleMonthSelect = (monthIndex) => {
+        setCurrentMonth(prev => {
+            const newDate = new Date(prev)
+            newDate.setMonth(monthIndex)
+            return newDate
+        })
+        setShowMonthPicker(false)
+    }
+
+    const handleYearSelect = (year) => {
+        setCurrentMonth(prev => {
+            const newDate = new Date(prev)
+            newDate.setFullYear(year)
+            return newDate
+        })
+        setShowYearPicker(false)
     }
 
     const isSelectedDate = (day) => {
@@ -88,10 +120,147 @@ export default function CustomDatePicker({ value, onChange, label, isOpen, onTog
         return years
     }
 
+    const toggleMonthPicker = () => {
+        setShowMonthPicker(!showMonthPicker)
+        setShowYearPicker(false)
+    }
+
+    const toggleYearPicker = () => {
+        setShowYearPicker(!showYearPicker)
+        setShowMonthPicker(false)
+    }
+
+    const renderCalendarView = () => {
+        if (showMonthPicker) {
+            return (
+                <div className="p-4">
+                    <div className="flex items-center justify-between mb-4">
+                        <button
+                            type="button"
+                            onClick={() => setShowMonthPicker(false)}
+                            className="text-sm text-gray-600 hover:text-gray-800"
+                        >
+                            ← Back to Calendar
+                        </button>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2">
+                        {months.map((month, index) => (
+                            <button
+                                key={month}
+                                type="button"
+                                onClick={() => handleMonthSelect(index)}
+                                className={`p-2 text-sm rounded hover:bg-gray-100 ${
+                                    currentMonth.getMonth() === index ? "bg-primary/10 text-primary" : ""
+                                }`}
+                            >
+                                {month}
+                            </button>
+                        ))}
+                    </div>
+                </div>
+            )
+        }
+
+        if (showYearPicker) {
+            return (
+                <div className="p-4">
+                    <div className="flex items-center justify-between mb-4">
+                        <button
+                            type="button"
+                            onClick={() => setShowYearPicker(false)}
+                            className="text-sm text-gray-600 hover:text-gray-800"
+                        >
+                            ← Back to Calendar
+                        </button>
+                    </div>
+                    <div className="grid grid-cols-4 gap-2 max-h-48 overflow-y-auto">
+                        {generateYears().map((year) => (
+                            <button
+                                key={year}
+                                type="button"
+                                onClick={() => handleYearSelect(year)}
+                                className={`p-2 text-sm rounded hover:bg-gray-100 ${
+                                    currentMonth.getFullYear() === year ? "bg-primary/10 text-primary" : ""
+                                }`}
+                            >
+                                {year}
+                            </button>
+                        ))}
+                    </div>
+                </div>
+            )
+        }
+
+        return (
+            <div className="p-4">
+                <div className="flex items-center justify-between mb-4">
+                    <button
+                        type="button"
+                        onClick={() => navigateMonth("prev")}
+                        className="p-1 hover:bg-gray-100 rounded"
+                    >
+                        <ChevronLeft className="h-4 w-4" />
+                    </button>
+                    <div className="flex gap-2">
+                        <button
+                            type="button"
+                            onClick={toggleMonthPicker}
+                            className="font-medium hover:bg-gray-100 px-2 py-1 rounded flex items-center gap-1"
+                        >
+                            {months[currentMonth.getMonth()]}
+                            <ChevronDown className="h-3 w-3" />
+                        </button>
+                        <button
+                            type="button"
+                            onClick={toggleYearPicker}
+                            className="font-medium hover:bg-gray-100 px-2 py-1 rounded flex items-center gap-1"
+                        >
+                            {currentMonth.getFullYear()}
+                            <ChevronDown className="h-3 w-3" />
+                        </button>
+                    </div>
+                    <button
+                        type="button"
+                        onClick={() => navigateMonth("next")}
+                        className="p-1 hover:bg-gray-100 rounded"
+                    >
+                        <ChevronRight className="h-4 w-4" />
+                    </button>
+                </div>
+
+                <div className="grid grid-cols-7 gap-1 mb-2">
+                    {["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"].map((day) => (
+                        <div key={day} className="text-center text-xs font-medium text-gray-500 py-2">
+                            {day}
+                        </div>
+                    ))}
+                </div>
+
+                <div className="grid grid-cols-7 gap-1">
+                    {getDaysInMonth(currentMonth).map((day, index) => (
+                        <button
+                            key={index}
+                            type="button"
+                            onClick={() => day && handleDateSelect(day)}
+                            disabled={!day}
+                            className={`
+                                h-8 w-8 text-sm rounded-lg flex items-center justify-center
+                                ${!day ? "invisible" : ""}
+                                ${isSelectedDate(day || 0) ? "bg-primary text-white" : "hover:bg-gray-100 text-gray-700"}
+                            `}
+                        >
+                            {day}
+                        </button>
+                    ))}
+                </div>
+            </div>
+        )
+    }
+
     return (
         <div className="space-y-2">
             <label className="block text-sm font-medium text-gray-700">{label}</label>
-            <div className="relative">
+            <div className="relative" ref={containerRef}>
                 <button
                     type="button"
                     onClick={() => onToggle(!isOpen)}
@@ -102,104 +271,8 @@ export default function CustomDatePicker({ value, onChange, label, isOpen, onTog
                 </button>
 
                 {isOpen && (
-                    <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-lg z-50">
-                        <div className="p-4">
-                            {!showMonthYearPicker ? (
-                                <>
-                                    <div className="flex items-center justify-between mb-4">
-                                        <button
-                                            type="button"
-                                            onClick={() => navigateMonth("prev")}
-                                            className="p-1 hover:bg-gray-100 rounded"
-                                        >
-                                            <ChevronLeft className="h-4 w-4" />
-                                        </button>
-                                        <button
-                                            type="button"
-                                            onClick={() => setShowMonthYearPicker(true)}
-                                            className="font-medium hover:bg-gray-100 px-2 py-1 rounded"
-                                        >
-                                            {months[currentMonth.getMonth()]} {currentMonth.getFullYear()}
-                                        </button>
-                                        <button
-                                            type="button"
-                                            onClick={() => navigateMonth("next")}
-                                            className="p-1 hover:bg-gray-100 rounded"
-                                        >
-                                            <ChevronRight className="h-4 w-4" />
-                                        </button>
-                                    </div>
-
-                                    <div className="grid grid-cols-7 gap-1 mb-2">
-                                        {["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"].map((day) => (
-                                            <div key={day} className="text-center text-xs font-medium text-gray-500 py-2">
-                                                {day}
-                                            </div>
-                                        ))}
-                                    </div>
-
-                                    <div className="grid grid-cols-7 gap-1">
-                                        {getDaysInMonth(currentMonth).map((day, index) => (
-                                            <button
-                                                key={index}
-                                                type="button"
-                                                onClick={() => day && handleDateSelect(day)}
-                                                disabled={!day}
-                                                className={`
-                                                    h-8 w-8 text-sm rounded-lg flex items-center justify-center
-                                                    ${!day ? "invisible" : ""}
-                                                    ${isSelectedDate(day || 0) ? "bg-primary text-white" : "hover:bg-gray-100 text-gray-700"}
-                                                `}
-                                            >
-                                                {day}
-                                            </button>
-                                        ))}
-                                    </div>
-                                </>
-                            ) : (
-                                <div className="space-y-4">
-                                    <div className="flex items-center justify-between">
-                                        <button
-                                            type="button"
-                                            onClick={() => setShowMonthYearPicker(false)}
-                                            className="text-sm text-gray-600 hover:text-gray-800"
-                                        >
-                                            ← Back to Calendar
-                                        </button>
-                                    </div>
-
-                                    <div className="grid grid-cols-3 gap-2 max-h-48 overflow-y-auto">
-                                        {months.map((month, index) => (
-                                            <button
-                                                key={month}
-                                                type="button"
-                                                onClick={() => handleMonthYearSelect(index, currentMonth.getFullYear())}
-                                                className={`p-2 text-sm rounded hover:bg-gray-100 ${
-                                                    currentMonth.getMonth() === index ? "bg-primary/10 text-primary" : ""
-                                                }`}
-                                            >
-                                                {month}
-                                            </button>
-                                        ))}
-                                    </div>
-
-                                    <div className="grid grid-cols-4 gap-2 max-h-32 overflow-y-auto">
-                                        {generateYears().map((year) => (
-                                            <button
-                                                key={year}
-                                                type="button"
-                                                onClick={() => handleMonthYearSelect(currentMonth.getMonth(), year)}
-                                                className={`p-2 text-sm rounded hover:bg-gray-100 ${
-                                                    currentMonth.getFullYear() === year ? "bg-primary/10 text-primary" : ""
-                                                }`}
-                                            >
-                                                {year}
-                                            </button>
-                                        ))}
-                                    </div>
-                                </div>
-                            )}
-                        </div>
+                    <div className="absolute top-0 left-0 right-0 bg-white border border-gray-200 rounded-xl shadow-xl z-[70]">
+                        {renderCalendarView()}
                     </div>
                 )}
             </div>
