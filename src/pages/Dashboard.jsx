@@ -16,13 +16,12 @@ import CalendarPanel from '../components/CalendarPanel';
 import DeleteClientModal from '../modals/DeleteClientModal';
 import DeleteGroupModal from '../modals/DeleteGroupModal';
 import EditProfileModal from '../modals/EditProfileModal';
+import SavingToast from '../components/savingToast';
 
 import NewClientModal from '../modals/NewClientModal';
 import NewGroupModal from '../modals/NewGroupModal';
 import NewAppointmentModal from '../modals/UpdatedAppointmentModal';
 import UploadVideoModal from '../modals/UploadVideoModal';
-
-
 
 /* ────────────────────────────────────────────── */
 export default function Dashboard() {
@@ -38,10 +37,15 @@ export default function Dashboard() {
   const [showAppt, setShowAppt] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
 
+  // Toast state
+  const [showToast, setShowToast] = useState(false);
+  const [toastMessage, setToastMessage] = useState("");
+  const [toastType, setToastType] = useState("success");
+
   const [selectedDay, setSelectedDay] = useState(new Date());
-    // Track expanded states for cards
-    const [expandedClients, setExpandedClients] = useState(new Set());
-    const [expandedGroups, setExpandedGroups] = useState(new Set());
+  // Track expanded states for cards
+  const [expandedClients, setExpandedClients] = useState(new Set());
+  const [expandedGroups, setExpandedGroups] = useState(new Set());
 
   // Search/filter state
   const [qClient, setQClient] = useState('');
@@ -68,33 +72,77 @@ export default function Dashboard() {
     const gMap = Object.fromEntries(groups.map(g => [g._id, g]));
 
     return clients
-      .filter(c =>
-        c.name.toLowerCase().includes(qClient.toLowerCase())
-      )
-      .map(c => ({
-        ...c,
-        // if c.group is an id and we have its record, replace with object
-        group:
-          typeof c.group === 'string' && gMap[c.group]
-            ? gMap[c.group]
-            : c.group,
-      }));
+        .filter(c =>
+            c.name.toLowerCase().includes(qClient.toLowerCase())
+        )
+        .map(c => ({
+          ...c,
+          // if c.group is an id and we have its record, replace with object
+          group:
+              typeof c.group === 'string' && gMap[c.group]
+                  ? gMap[c.group]
+                  : c.group,
+        }));
   }, [clients, qClient, groups]);
   const filGroups = useMemo(
-    () =>
-      groups.filter(g =>
-        g.name.toLowerCase().includes(qGroup.toLowerCase())
-      ),
-    [groups, qGroup]
+      () =>
+          groups.filter(g =>
+              g.name.toLowerCase().includes(qGroup.toLowerCase())
+          ),
+      [groups, qGroup]
   );
 
   /* ─── Appointments for the selected day ──────────── */
   const dayAppts = useMemo(() => {
     const key = format(selectedDay, 'yyyy-MM-dd');
     return appts.filter(
-      a => format(new Date(a.dateTimeStart), 'yyyy-MM-dd') === key
+        a => format(new Date(a.dateTimeStart), 'yyyy-MM-dd') === key
     );
   }, [appts, selectedDay]);
+
+  /* ─── Toast handlers ──────────────────────────── */
+  const handleToastClose = () => {
+    setShowToast(false);
+  };
+
+  const showSuccessToast = (message) => {
+    setToastMessage(message);
+    setToastType("success");
+    setShowToast(true);
+  };
+
+  const showErrorToast = (message) => {
+    setToastMessage(message);
+    setToastType("error");
+    setShowToast(true);
+  };
+
+  /* ─── Event handlers ──────────────────────────── */
+  const handleClientCreated = (client) => {
+    setClients(prev => [client, ...prev]);
+    showSuccessToast(`Client "${client.name}" created successfully!`);
+  };
+
+  const handleGroupCreated = (group) => {
+    setGroups(prev => [group, ...prev]);
+    showSuccessToast(`Group session "${group.name}" created successfully!`);
+  };
+
+  const handleAppointmentCreated = (appointment) => {
+    setAppts(prev => [appointment, ...prev]);
+    setSelectedDay(new Date(appointment.dateTimeStart));
+    showSuccessToast("Appointment created successfully!");
+  };
+
+  const handleClientDeleted = (client) => {
+    setClients(list => list.filter(x => x._id !== client._id));
+    showSuccessToast(`Client "${client.name}" deleted successfully.`);
+  };
+
+  const handleGroupDeleted = (group) => {
+    setGroups(list => list.filter(x => x._id !== group._id));
+    showSuccessToast(`Group session "${group.name}" deleted successfully.`);
+  };
 
   /* ─── Status Chip component ──────────────────────── */
   const Chip = ({ status }) => {
@@ -105,7 +153,7 @@ export default function Dashboard() {
       cancelled: 'bg-red-400 text-white',
     }[status] || 'bg-gray-300 text-gray-700';
     return (
-      <span className={`px-2 py-0.5 rounded-full text-xs capitalize ${cls}`}>
+        <span className={`px-2 py-0.5 rounded-full text-xs capitalize ${cls}`}>
         {status}
       </span>
     );
@@ -113,44 +161,44 @@ export default function Dashboard() {
 
   /* ────────────────────────── JSX ────────────────────────── */
   return (
-    <div className="min-h-screen flex flex-col font-sans">
-      <Navbar />
-      <div className="flex flex-1">
-        <Sidebar />
+      <div className="min-h-screen flex flex-col font-sans">
+        <Navbar />
+        <div className="flex flex-1">
+          <Sidebar />
 
-        <main className="flex-1 p-4 lg:p-6 grid lg:grid-cols-[280px_1fr_1fr] gap-6">
-          {/* ── Calendar & Appointments Column ── */}
-          <section className="space-y-4">
-            <CalendarPanel value={selectedDay} onChange={setSelectedDay} />
+          <main className="flex-1 p-4 lg:p-6 grid lg:grid-cols-[280px_1fr_1fr] gap-6">
+            {/* ── Calendar & Appointments Column ── */}
+            <section className="space-y-4">
+              <CalendarPanel value={selectedDay} onChange={setSelectedDay} />
 
-            <button
-              onClick={() => setShowAppt(true)}
-              className="w-full py-2 rounded-xl bg-primary text-white"
-            >
-              New Appointment
-            </button>
+              <button
+                  onClick={() => setShowAppt(true)}
+                  className="w-full py-2 rounded-xl bg-primary text-white"
+              >
+                New Appointment
+              </button>
 
-            <div className="space-y-2 max-h-[45vh] overflow-y-auto pr-1">
-              {dayAppts.length ? (
-                dayAppts.map(a => (
-                  <AppointmentCard
-                    key={a._id}
-                    a={a}
-                    onEdit={setEditAppt}
-                    // You could also pass onUpload or onView if AppointmentCard supports it:
-                    // onUpload={() => nav(`/appointments/${a._id}/upload`)}
-                    // onView={(videoId) => nav(`/videos/${videoId}/review`)}
-                  />
-                ))
-              ) : (
-                <p className="text-sm text-gray-400 text-center mt-4">No appointments</p>
-              )}
-            </div>
-          </section>
+              <div className="space-y-2 max-h-[45vh] overflow-y-auto pr-1">
+                {dayAppts.length ? (
+                    dayAppts.map(a => (
+                        <AppointmentCard
+                            key={a._id}
+                            a={a}
+                            onEdit={setEditAppt}
+                            // You could also pass onUpload or onView if AppointmentCard supports it:
+                            // onUpload={() => nav(`/appointments/${a._id}/upload`)}
+                            // onView={(videoId) => nav(`/videos/${videoId}/review`)}
+                        />
+                    ))
+                ) : (
+                    <p className="text-sm text-gray-400 text-center mt-4">No appointments</p>
+                )}
+              </div>
+            </section>
 
-          {/* ── Clients Column ── */}
-          <section className="space-y-4 p-6 bg-[#FAF8FF] rounded-xl">
-            <h3 className="text-2xl font-semibold text-primary">Clients</h3>
+            {/* ── Clients Column ── */}
+            <section className="space-y-4 p-6 bg-[#FAF8FF] rounded-xl">
+              <h3 className="text-2xl font-semibold text-primary">Clients</h3>
 
               <SearchBar
                   placeholder="Search For Clients"
@@ -159,9 +207,9 @@ export default function Dashboard() {
                   onSearch={setQClient}
               />
 
-            <AddButton text="New Client" onClick={() => setShowClient(true)} />
+              <AddButton text="New Client" onClick={() => setShowClient(true)} />
 
-            <div className="space-y-1 max-h-[70vh] overflow-y-auto pr-1">
+              <div className="space-y-1 max-h-[70vh] overflow-y-auto pr-1">
                 {filClients.map(c => (
                     <ClientCard
                         key={c._id}
@@ -170,22 +218,22 @@ export default function Dashboard() {
                         onEdit={c => nav(`/clients/${c._id}/edit`)}
                         isExpanded={expandedClients.has(c._id)}
                         onToggleExpanded={() => {
-                            const newExpanded = new Set(expandedClients);
-                            if (newExpanded.has(c._id)) {
-                                newExpanded.delete(c._id);
-                            } else {
-                                newExpanded.add(c._id);
-                            }
-                            setExpandedClients(newExpanded);
+                          const newExpanded = new Set(expandedClients);
+                          if (newExpanded.has(c._id)) {
+                            newExpanded.delete(c._id);
+                          } else {
+                            newExpanded.add(c._id);
+                          }
+                          setExpandedClients(newExpanded);
                         }}
                     />
                 ))}
-            </div>
-          </section>
+              </div>
+            </section>
 
-          {/* ── Groups Column ── */}
-          <section className="space-y-4 p-6 bg-[#FAF8FF] rounded-xl">
-            <h3 className="text-2xl font-semibold text-primary">Group Sessions</h3>
+            {/* ── Groups Column ── */}
+            <section className="space-y-4 p-6 bg-[#FAF8FF] rounded-xl">
+              <h3 className="text-2xl font-semibold text-primary">Group Sessions</h3>
 
               <SearchBar
                   placeholder="Search For Group Sessions"
@@ -194,9 +242,9 @@ export default function Dashboard() {
                   onSearch={setQGroup}
               />
 
-            <AddButton text="New Group Session" onClick={() => setShowGroup(true)} />
+              <AddButton text="New Group Session" onClick={() => setShowGroup(true)} />
 
-            <div className="space-y-1 max-h-[70vh] overflow-y-auto pr-1">
+              <div className="space-y-1 max-h-[70vh] overflow-y-auto pr-1">
                 {filGroups.map(g => (
                     <GroupCard
                         key={g._id}
@@ -204,69 +252,74 @@ export default function Dashboard() {
                         onDelete={g => setDelGroup(g)}
                         isExpanded={expandedGroups.has(g._id)}
                         onToggleExpanded={() => {
-                            const newExpanded = new Set(expandedGroups);
-                            if (newExpanded.has(g._id)) {
-                                newExpanded.delete(g._id);
-                            } else {
-                                newExpanded.add(g._id);
-                            }
-                            setExpandedGroups(newExpanded);
+                          const newExpanded = new Set(expandedGroups);
+                          if (newExpanded.has(g._id)) {
+                            newExpanded.delete(g._id);
+                          } else {
+                            newExpanded.add(g._id);
+                          }
+                          setExpandedGroups(newExpanded);
                         }}
                     />
                 ))}
-            </div>
-          </section>
-        </main>
+              </div>
+            </section>
+          </main>
+        </div>
+
+        {/* ── Modals ── */}
+        <NewClientModal
+            open={showClient}
+            onClose={() => setShowClient(false)}
+            onCreated={handleClientCreated}
+        />
+        <NewGroupModal
+            open={showGroup}
+            onClose={() => setShowGroup(false)}
+            onCreated={handleGroupCreated}
+        />
+        <NewAppointmentModal
+            open={showAppt}
+            onClose={() => setShowAppt(false)}
+            onCreated={handleAppointmentCreated}
+        />
+        <DeleteClientModal
+            open={!!delClient}
+            client={delClient}
+            onClose={() => setDelClient(null)}
+            onDeleted={handleClientDeleted}
+        />
+
+        <DeleteGroupModal
+            open={!!delGroup}
+            group={delGroup}
+            onClose={() => setDelGroup(null)}
+            onDeleted={handleGroupDeleted}
+        />
+
+        <EditProfileModal open={showProfile} onClose={() => setShowProfile(false)} />
+
+        <EditAppointmentModal
+            open={!!editAppt}
+            appt={editAppt}
+            onClose={() => setEditAppt(null)}
+            onUpdated={u => setAppts(p => p.map(x => (x._id === u._id ? u : x)))}
+            onDeleted={d => setAppts(p => p.filter(x => x._id !== d._id))}
+        />
+
+        <UploadVideoModal
+            open={!!uploadAppt}
+            appointment={uploadAppt}
+            onClose={() => setUploadAppt(null)}
+        />
+
+        {/* Success/Error Toast */}
+        <SavingToast
+            show={showToast}
+            message={toastMessage}
+            type={toastType}
+            onClose={handleToastClose}
+        />
       </div>
-
-      {/* ── Modals ── */}
-      <NewClientModal
-        open={showClient}
-        onClose={() => setShowClient(false)}
-        onCreated={c => setClients(prev => [c, ...prev])}
-      />
-      <NewGroupModal
-        open={showGroup}
-        onClose={() => setShowGroup(false)}
-        onCreated={g => setGroups(prev => [g, ...prev])}
-      />
-      <NewAppointmentModal
-        open={showAppt}
-        onClose={() => setShowAppt(false)}
-        onCreated={a => {
-          setAppts(prev => [a, ...prev]);
-          setSelectedDay(new Date(a.dateTimeStart));
-        }}
-      />
-      <DeleteClientModal
-        open={!!delClient}
-        client={delClient}
-        onClose={() => setDelClient(null)}
-        onDeleted={c => setClients(list => list.filter(x => x._id !== c._id))}
-      />
-
-      <DeleteGroupModal
-        open={!!delGroup}
-        group={delGroup}
-        onClose={() => setDelGroup(null)}
-        onDeleted={g => setGroups(list => list.filter(x => x._id !== g._id))}
-      />
-
-      <EditProfileModal open={showProfile} onClose={() => setShowProfile(false)} />
-
-      <EditAppointmentModal
-        open={!!editAppt}
-        appt={editAppt}
-        onClose={() => setEditAppt(null)}
-        onUpdated={u => setAppts(p => p.map(x => (x._id === u._id ? u : x)))}
-        onDeleted={d => setAppts(p => p.filter(x => x._id !== d._id))}
-      />
-
-      <UploadVideoModal
-        open={!!uploadAppt}
-        appointment={uploadAppt}
-        onClose={() => setUploadAppt(null)}
-      />
-    </div>
   );
 }
