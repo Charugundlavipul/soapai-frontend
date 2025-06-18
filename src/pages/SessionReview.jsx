@@ -28,6 +28,7 @@ export default function SessionReview() {
   const navigate  = useNavigate();
   const [video, setVideo] = useState(null);
   const [user , setUser ] = useState(null);
+  const [transcribing, setTranscribing] = useState(false);
 
   /* UI toggles */
   const [showTx     , setShowTx     ] = useState(false);
@@ -39,25 +40,41 @@ export default function SessionReview() {
   useEffect(() => { getProfile().then(r => setUser(r.data));  }, []);
 
   /* fetch transcript lazily */
+  /* fetch transcript lazily */
   useEffect(() => {
     if (!showTx) return;
+
+    setTranscribing(true);
     getTranscript(id)
-      .then(r => setVideo(v => ({ ...v, transcript: r.data })))
-      .catch(() => alert("Failed to fetch transcript"));
+        .then(r => {
+          setVideo(v => ({ ...v, transcript: r.data }));
+          setTranscribing(false);
+        })
+        .catch(() => {
+          alert("Failed to fetch transcript");
+          setTranscribing(false);
+        });
   }, [showTx, id]);
 
   /* poll until transcript ready */
+  /* poll until transcript ready */
   useEffect(() => {
     if (!video || (video.transcript?.length ?? 0) > 0) return;
+
+    setTranscribing(true);
     const h = setInterval(() => {
       getVideo(id).then(r => {
         if (r.data.transcript?.length) {
           setVideo(r.data);
+          setTranscribing(false);
           clearInterval(h);
         }
       });
     }, 3000);
-    return () => clearInterval(h);
+    return () => {
+      clearInterval(h);
+      setTranscribing(false);
+    };
   }, [video, id]);
 
   /* ─── helpers ─── */
@@ -125,25 +142,42 @@ export default function SessionReview() {
 
           <div className="bg-[#FAF8FF] rounded-xl p-6 space-y-4 shadow" style={{width:463,height:330}}>
             {showTx ? (
-              <>
-                <QuickRow icon={ChevronDown} label="Video Transcript (Hide)" onClick={()=>setShowTx(false)}/>
-                <div className="overflow-y-auto border rounded-md" style={{maxHeight:240}}>
-                  <table className="w-full text-sm">
-                    <thead className="bg-primary/10 text-primary">
-                      <tr><th className="px-4 py-2 w-24">Start</th><th className="px-4 py-2 w-24">End</th><th className="px-4 py-2">Text</th></tr>
-                    </thead>
-                    <tbody>
-                      {video.transcript?.map((u,i)=>(
-                        <tr key={i} className="border-t">
-                          <td className="px-4 py-2">{fmt(u.start)}</td>
-                          <td className="px-4 py-2">{fmt(u.end)}</td>
-                          <td className="px-4 py-2">{u.text}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </>
+                <>
+                  <QuickRow icon={ChevronDown} label="Video Transcript (Hide)" onClick={()=>{setShowTx(false); setTranscribing(false);}}/>
+                  {transcribing ? (
+                      <div className="flex flex-col items-center justify-center py-12 space-y-4">
+                        <div className="relative">
+                          <div className="w-12 h-12 border-4 border-primary/20 border-t-primary rounded-full animate-spin"></div>
+                        </div>
+                        <div className="text-center">
+                          <p className="text-primary font-medium">Transcribing audio...</p>
+                          <p className="text-sm text-gray-500 mt-1">This may take a few moments</p>
+                        </div>
+                        <div className="flex space-x-1">
+                          <div className="w-2 h-2 bg-primary rounded-full animate-bounce" style={{animationDelay: '0ms'}}></div>
+                          <div className="w-2 h-2 bg-primary rounded-full animate-bounce" style={{animationDelay: '150ms'}}></div>
+                          <div className="w-2 h-2 bg-primary rounded-full animate-bounce" style={{animationDelay: '300ms'}}></div>
+                        </div>
+                      </div>
+                  ) : (
+                      <div className="overflow-y-auto border rounded-md" style={{maxHeight:240}}>
+                        <table className="w-full text-sm">
+                          <thead className="bg-primary/10 text-primary">
+                          <tr><th className="px-4 py-2 w-24">Start</th><th className="px-4 py-2 w-24">End</th><th className="px-4 py-2">Text</th></tr>
+                          </thead>
+                          <tbody>
+                          {video.transcript?.map((u,i)=>(
+                              <tr key={i} className="border-t">
+                                <td className="px-4 py-2">{fmt(u.start)}</td>
+                                <td className="px-4 py-2">{fmt(u.end)}</td>
+                                <td className="px-4 py-2">{u.text}</td>
+                              </tr>
+                          ))}
+                          </tbody>
+                        </table>
+                      </div>
+                  )}
+                </>
             ) : (
               <>
                 <div className="flex justify-between items-center">
