@@ -131,7 +131,7 @@ export default function UploadVideo() {
 
         {/* Header Section */}
         <div className="bg-white border-b border-gray-200 shadow-sm">
-          <div className="max-w-7xl mx-auto px-8 py-6">
+          <div className="max-w-7xl mx-auto px-8 py-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-4">
                 <button
@@ -143,7 +143,7 @@ export default function UploadVideo() {
                 </button>
               </div>
               <div className="text-center">
-                <h1 className="text-3xl font-bold text-gray-900 mb-2">Upload Session Video</h1>
+                <h1 className="text-2xl font-bold text-gray-900 mb-2">Upload Session Video</h1>
                 <p className="text-gray-600">Upload and organize your therapy session recordings</p>
               </div>
               <div className="w-32"></div> {/* Spacer for centering */}
@@ -276,7 +276,7 @@ export default function UploadVideo() {
                   <h2 className="text-xl font-semibold text-gray-900">Video Upload</h2>
                 </div>
 
-                <label className="block border-2 border-dashed border-gray-300 rounded-xl p-8 text-center bg-gray-50 hover:bg-gray-100 hover:border-gray-400 transition-all duration-200 cursor-pointer group min-h-[400px] flex flex-col justify-center">
+                <label className="block border-2 border-dashed border-gray-300 rounded-xl p-6 text-center bg-gray-50 hover:bg-gray-100 hover:border-gray-400 transition-all duration-200 cursor-pointer group min-h-[300px] flex flex-col justify-center">
                   <input type="file" accept="video/*" hidden onChange={(e) => setFile(e.target.files[0])} />
 
                   <div className="flex flex-col items-center justify-center">
@@ -289,7 +289,7 @@ export default function UploadVideo() {
                         </div>
                     ) : (
                         <>
-                          <Cloud className="w-20 h-20 text-gray-400 group-hover:text-gray-500 mb-6 transition-colors duration-200" />
+                          <Cloud className="w-20 h-20 text-gray-400 group-hover:text-gray-500 mb-3 transition-colors duration-200" />
                           <p className="text-xl font-semibold text-gray-700 mb-2">Drop your video here</p>
                           <p className="text-gray-600 mb-4">
                             or <span className="text-primary font-semibold">browse files</span>
