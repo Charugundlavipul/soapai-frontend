@@ -1,6 +1,7 @@
 // client/src/pages/GroupRecommendations.jsx
 import { useState, useEffect, useRef } from "react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
+import EditActivityModal from "../modals/EditActivityModal";
 import axios from "axios";
 import Navbar from "../components/Navbar";
 import GoalPickerModal from "../modals/GoalPickerModal";
@@ -59,12 +60,21 @@ export default function GroupRecommendations() {
   const [showModal, setShowModal] = useState(false);
   const [apptStart, setApptStart] = useState(null); 
   const [activityName, setActivityName] = useState("");
+  const [activities, setActivities] = useState([]);   // ← NEW
+
 
 
   // Activity‐Generator controls
   const [selectedMembers, setSelectedMembers] = useState([]);
   const [duration, setDuration] = useState("30 Minutes");
   const [showPicker, setShowPicker] = useState(false);
+  const [idea,          setIdea]          = useState("");
+  const [draft,         setDraft]         = useState(null);   // { description, materials }
+  const [selectedMats,  setSelectedMats]  = useState([]);
+  const [draftName, setDraftName] = useState("");    // activity name from draft
+const [draftDesc, setDraftDesc] = useState("");    // description from draft
+
+
   // Receive “plan” from back‐end (in Markdown), then convert to HTML
   const [planMD, setPlanMD] = useState("");
   const [editorHtml, setEditorHtml] = useState("");
@@ -85,6 +95,7 @@ export default function GroupRecommendations() {
           if (!appt.group) throw new Error("Appointment lacks group");
           grpId = appt.group._id;
           setApptStart(appt.dateTimeStart);
+          setActivities(appt.activities || []);
         }
 
         const [grpRes, recRes] = await Promise.all([
@@ -121,112 +132,130 @@ export default function GroupRecommendations() {
   };
 
   /* ─── Generate Activity & PUSH into each patient’s visitHistory ─── */
-  const generateActivity = async () => {
-    if (!fromAppointment) {
-      return alert("Need an appointment context.");
-    }
-    if (!selectedMembers.length || !selectedGoals.length) {
-      return alert("Pick members & goals first.");
-    }
+  /* ────────────────────────────────────────────────
+   1️⃣  STEP-ONE  →  /activity-draft
+   returns { description, materials[] }
+------------------------------------------------- */
+const generateDraft = async () => {
+  if (!fromAppointment)           return alert("Need an appointment context.");
+  if (!selectedMembers.length ||
+      !selectedGoals.length)      return alert("Pick members & goals first.");
 
-    // Build a “notes” chunk per selected patient
-    const noteChunks = selectedMembers.map((pid) => {
-      const txt = visitNoteOf(pid) || PLACEHOLDER_VISIT;
-      const mem = group.patients.find((p) => String(p._id) === String(pid));
-      return txt;
-    });
-    const notes = noteChunks.join("\n\n");
+  try {
+    setBusy(true);
 
-    try {
-      setBusy(true);
-
-      // 1) Ask backend to generate a Markdown “plan” for the activity
-      const { data } = await api.post(
-        `/appointments/${appointmentId}/generate-activity`,
-        {
-          memberIds: selectedMembers,
-          goals: selectedGoals,
-          duration,
-          notes,
-        }
-      );
-      const rawMd = (data.plan || "").trim();
-      setPlanMD(rawMd);
-
-      // Extract first non‐empty line of rawMd as activity name
-       const firstLineRaw =
-   rawMd.split("\n").find(l => l.trim())?.replace(/^#+\s*/, "") ||
-   "Generated Activity";
-
- // strip any '**Activity Name:**' prefix and surrounding ** … **
- const cleanTitle = firstLineRaw
-   .replace(/\*\*/g, "")                // remove markdown bold
-   .replace(/^activity name\s*:\s*/i, "")
-   .trim();
-
- const descText = rawMd || "No activity description generated.";
- setActivityName(cleanTitle); 
-      // Build one activity per selected goal:
-      // name = firstLine, description = entire plan, evidence = placeholder
-const activitiesArray = [
-  {
-    name:            firstLineRaw,
-    description:     descText,
-    evidence:        "AI generated plan covering multiple goals.",
-    associatedGoals: selectedGoals,   // e.g. ["s-blends", "turn-taking"]
-    recommended:     true,
-    score:           null,
-  },
-];
-
-      // 2) Decide which aiInsights to push: real or placeholder
-      const groupInsights = recommendation?.groupInsights?.length
-        ? recommendation.groupInsights
-        : [PLACEHOLDER_GROUP_INSIGHT];
-
-      // Build a map of individualInsights if provided
-      const individualInsightsMap = {};
-      if (recommendation?.individualInsights?.length) {
-        recommendation.individualInsights.forEach((ii) => {
-          const pidStr = String(ii.patient._id || ii.patient);
-          individualInsightsMap[pidStr] = ii.insights;
-        });
+    const { data } = await api.post(
+      `/appointments/${appointmentId}/activity-draft`,
+      {
+        memberIds: selectedMembers,
+        goals:     selectedGoals,
+        duration,
+        idea,                         // optional therapist focus
       }
+    );                               // data = { description, materials }
 
-      await Promise.all(
-  selectedMembers.map(async pid => {
-    await api.patch(`/clients/${pid}/goal-progress/history`, {
-      goals: selectedGoals,
-      activityName: firstLineRaw          // ← title of generated plan
-    });
-  })
-);
+    setDraft(data);
+    setDraftName(data.name || "Generated Activity");
+  setDraftDesc(data.description || "");
+  setSelectedMats(data.materials);                  // save whole draft
+    // pre-check everything
+  } catch (err) {
+    alert(err.response?.data?.message || "Draft generation failed.");
+  } finally {
+    setBusy(false);
+  }
+};
 
-      // 3) PUSH one visit entry into each patient’s visitHistory
-      await Promise.all(
-        group.patients.map((p) => {
-          const pidStr = String(p._id);
-          const patientAi =
-            individualInsightsMap[pidStr] || [PLACEHOLDER_INDIVIDUAL_INSIGHT];
+/* ────────────────────────────────────────────────
+   2️⃣  STEP-TWO  →  /generate-activity
+   returns { plan: markdown }, then pushes visitHistory
+------------------------------------------------- */
+// STEP-TWO  →  /generate-activity
+const finalizeActivity = async () => {
+  if (!draft)               return alert("Generate a draft first.");
+  if (!selectedMats.length) return alert("Select at least one material.");
+  if (busy)                 return;     
+  await new Promise(r => setTimeout(r, 50));
+  await downloadPdf();          // prevent double-clicks
+  setBusy(true);
 
-          const visitObj = {
-            date:        apptStart || new Date().toISOString(),
-            appointment: appointmentId,
-            type:        "group",
-            aiInsights:  patientAi,
-            note:        notes, 
-            activities:  activitiesArray,
-          };
-          return api.post(`/clients/${pidStr}/visit`, { visit: visitObj });
-        })
-      );
-    } catch (e) {
-      console.error("Error generating activity or saving visitHistory:", e);
-      alert(e.response?.data?.message || "Failed to generate or save visit data");
-    } finally {
-      setBusy(false);
+  try {
+    /* ---------- 1. create the activity on the server ---------- */
+    const { data } = await api.post(
+      `/appointments/${appointmentId}/generate-activity`,
+      {
+        memberIds:   selectedMembers,
+        goals:       selectedGoals,
+        duration,
+        idea,
+        materials:   selectedMats,
+        activityName: draftName,
+      }
+    );                                           // { plan, activity }
+
+    const newActivity = data.activity;           // ALWAYS an object w/ _id
+    if (!newActivity?._id) {
+      alert("Server didn’t return an activity id.");
+      return;
     }
-  };
+
+    /* ---------- 2. local UI state ---------- */
+    setPlanMD((data.plan || "").trim());
+    setActivityName(draftName);
+    setActivities(prev => [...prev, newActivity]);
+
+    /* ---------- 3. per-patient visitHistory entry ---------- */
+    const activitiesArray = [newActivity._id];   // ← **id only**
+
+    // update goal progress
+    await Promise.all(
+      selectedMembers.map(pid =>
+        api.patch(`/clients/${pid}/goal-progress/history`, {
+          goals: selectedGoals,
+          activityName: draftName,
+        })
+      )
+    );
+
+    // build visit notes
+    const notes = selectedMembers
+      .map(pid => visitNoteOf(pid) || PLACEHOLDER_VISIT)
+      .join("\n\n");
+
+    // push the visit row for every patient in the group
+    await Promise.all(
+      group.patients.map(p => {
+        const pidStr   = String(p._id);
+        const patientAi =
+          recommendation?.individualInsights?.find(
+            x => String(x.patient._id || x.patient) === pidStr
+          )?.insights || [PLACEHOLDER_INDIVIDUAL_INSIGHT];
+
+        const visitObj = {
+          date:        apptStart || new Date().toISOString(),
+          appointment: appointmentId,
+          type:        "group",
+          aiInsights:  patientAi,
+          note:        notes,
+          activities:  activitiesArray,
+        };
+        return api.post(`/clients/${pidStr}/visit`, { visit: visitObj });
+      })
+    );
+
+    /* ---------- 4. reset generator UI ---------- */
+    setDraft(null);
+    setSelectedMats([]);
+    setIdea("");
+
+  } catch (err) {
+    console.error("Error finalising activity:", err);
+    alert(err.response?.data?.message || "Failed to create activity.");
+  } finally {
+    setBusy(false);
+  }
+};
+
 
   useEffect(() => {
     if (planMD && editorRef.current) {
@@ -376,20 +405,32 @@ const downloadPdf = async () => {
           {activeTab === "activityGenerator" && (
             <ActivityTab
               group={group}
-              selectedMembers={selectedMembers}
+              selectedMembers={selectedMembers}   
               setSelectedMembers={setSelectedMembers}
-              selectedGoals={selectedGoals}
+              selectedGoals={selectedGoals}       
               setSelectedGoals={setSelectedGoals}
-              duration={duration}
+              duration={duration}                 
               setDuration={setDuration}
-              planMD={planMD}
-              editorHtml={editorHtml}
+              idea={idea}                         
+              setIdea={setIdea}
+              draft={draft}
+              selectedMats={selectedMats}         
+              setSelectedMats={setSelectedMats}
+              generateDraft={generateDraft}
+              finalizeActivity={finalizeActivity}
+              planMD={planMD}     
+              editorHtml={editorHtml} 
               setEditorHtml={setEditorHtml}
-              generate={generateActivity}
-              busy={busy}
+              busy={busy}         
               editorRef={editorRef}
               downloadPdf={downloadPdf}
-            />
+              draftName={draftName}
+              draftDesc={draftDesc}
+              activities={activities}
+              setActivities={setActivities}
+              appointmentId={appointmentId}  
+              />
+
           )}
         </div>
       </div>
@@ -537,6 +578,25 @@ const VisitNotesTab = ({ group, visitNoteOf }) => (
   </div>
 );
 
+
+const AccordionRow = ({ open, onToggle, header, children }) => (
+  <div className="border rounded-lg">
+    <button
+      onClick={onToggle}
+      className="w-full flex justify-between items-center px-4 py-2 bg-gray-50"
+    >
+      {header}
+      <ChevronLeft
+        className={`w-4 h-4 transition-transform ${
+          open ? "-rotate-90" : "rotate-90"
+        }`}
+      />
+    </button>
+    {open && <div className="p-4 space-y-3 bg-white">{children}</div>}
+  </div>
+);
+
+
 /* ─── Group Insights Tab ─── */
 const GroupInsightsTab = ({ recommendation, group }) => {
   const grpInsights =
@@ -587,25 +647,53 @@ const InsightRow = ({ ins }) => (
 );
 
 /* ─── Activity Generator Tab ─── */
+/* ─── Activity Generator Tab (two-step flow) ─── */
 const ActivityTab = ({
   group,
-  selectedMembers,
-  setSelectedMembers,
-  selectedGoals,
-  setSelectedGoals,
-  duration,
-  setDuration,
-  planMD,
-  editorHtml,
-  setEditorHtml,
-  generate,
-  busy,
-  editorRef,
+  selectedMembers,   setSelectedMembers,
+  selectedGoals,     setSelectedGoals,
+  duration,          setDuration,
+  idea,              setIdea,
+  draft,             selectedMats, setSelectedMats,
+  generateDraft,     finalizeActivity,
+  planMD,            editorHtml,   setEditorHtml,
+  busy,              editorRef,
   downloadPdf,
+  draftName,
+  draftDesc,
+  activities, setActivities, appointmentId
 }) => (
   <div className="bg-[#F5F4FB] rounded-2xl p-6 shadow-sm space-y-6">
+
+    {activities.length > 0 && (
+  <div className="space-y-4">
+    <h4 className="text-xl font-semibold text-gray-800">
+      Generated Activities
+    </h4>
+
+    {activities.map((a) => (
+      <ActivityAccordion
+        key={a._id}
+        act={a}
+        appointmentId={appointmentId}
+        group={group}
+        onUpdated={(updated) =>
+          setActivities((prev) =>
+            prev.map((x) => (x._id === updated._id ? updated : x))
+          )
+        }
+        onDeleted={(id) =>
+          setActivities((prev) => prev.filter((x) => x._id !== id))
+        }
+      />
+    ))}
+    <hr className="border-gray-200" />
+  </div>
+)}
+
     <h4 className="text-xl font-semibold text-gray-800">Activity Generator</h4>
 
+    {/* pick members & goals */}
     <DropdownChips
       label="Members"
       placeholder="Select Patients"
@@ -617,12 +705,12 @@ const ActivityTab = ({
     <DropdownChips
       label="Goals"
       placeholder="Select Goals"
-      /* options come from the same merged list we just put on group.goals */
       options={(group.goals ?? []).map((g) => ({ id: g, label: g }))}
       selected={selectedGoals}
       setSelected={setSelectedGoals}
     />
 
+    {/* duration */}
     <div className="flex items-center gap-3">
       <label className="text-sm font-medium text-gray-700">Duration</label>
       <select
@@ -637,14 +725,82 @@ const ActivityTab = ({
       </select>
     </div>
 
+    {/* optional idea */}
+    {!planMD && (
+      <div>
+        <label className="text-sm font-medium text-gray-700">
+          Therapist Idea (optional)
+        </label>
+        <textarea
+          rows={3}
+          value={idea}
+          onChange={(e) => setIdea(e.target.value)}
+          placeholder="e.g., a turn-taking game around superheroes…"
+          className="w-full mt-1 border-gray-300 rounded-md px-3 py-2 shadow-sm focus:ring-primary focus:border-primary"
+        />
+      </div>
+    )}
+
+    {/* STEP-1 button (draft) */}
+    {!draft && (
+      <button
+        onClick={generateDraft}
+        disabled={busy}
+        className="bg-primary text-white rounded-full px-6 py-2 w-fit hover:bg-primary/90 disabled:opacity-60"
+      >
+        {busy ? "Generating…" : "Generate Activity"}
+      </button>
+    )}
+
+    {/* show draft ------------------------------------------------ */}
+   {draft && !planMD && (
+  <>
+    <div className="bg-white rounded-md p-4 space-y-4">
+      <p className="text-sm">
+        <strong>Activity&nbsp;Name:</strong> {draftName}
+      </p>
+      <p className="text-sm whitespace-pre-wrap">
+        <strong>Description:</strong> {draftDesc}
+      </p>
+
+      <div>
+        <p className="text-sm font-medium text-gray-700 mb-2">
+          Materials (select what you’ll actually use)
+        </p>
+        <ul className="space-y-2">
+          {draft.materials.map((m) => (
+            <li key={m} className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={selectedMats.includes(m)}
+                onChange={() =>
+                  setSelectedMats((prev) =>
+                    prev.includes(m)
+                      ? prev.filter((x) => x !== m)
+                      : [...prev, m]
+                  )
+                }
+                className="h-4 w-4 text-primary focus:ring-primary border-gray-300 rounded"
+              />
+              <span className="text-sm text-gray-800">{m}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </div>
+
     <button
-      onClick={generate}
-      disabled={busy}
+      onClick={finalizeActivity}
+      disabled={!selectedMats.length || busy}
       className="bg-primary text-white rounded-full px-6 py-2 w-fit hover:bg-primary/90 disabled:opacity-60"
     >
-      {busy ? "Generating…" : "Generate Activity"}
+      {busy ? "Creating…" : "Generate With Selected Materials"}
     </button>
+  </>
+)}
 
+
+    {/* final plan editable & PDF download ----------------------- */}
     {planMD && (
       <div className="space-y-4 w-full">
         <h5 className="text-lg font-semibold text-gray-800">Generated Plan</h5>
@@ -652,9 +808,10 @@ const ActivityTab = ({
         <div
           ref={editorRef}
           contentEditable
-          suppressContentEditableWarning={true}
+          suppressContentEditableWarning
           onInput={(e) => setEditorHtml(e.currentTarget.innerHTML)}
           className="min-h-[200px] border rounded-md p-3 bg-white text-sm overflow-auto"
+          dangerouslySetInnerHTML={{ __html: editorHtml || marked.parse(planMD) }}
         />
 
         <button
@@ -667,6 +824,90 @@ const ActivityTab = ({
     )}
   </div>
 );
+
+
+
+const ActivityAccordion = ({ act, group, onUpdated, onDeleted, appointmentId }) => {
+  const [open,  setOpen]  = useState(false);
+  const [edit,  setEdit]  = useState(false);
+  const [busy,  setBusy]  = useState(false);
+
+  const saveEdit = async ({ name, description }) => {
+    try {
+      setBusy(true);
+      const { data } = await api.patch(`/appointments/${appointmentId}/activities/${act._id}`, {
+        name,
+        description,
+      });
+      onUpdated(data);
+      setEdit(false);
+    } catch (e) {
+      alert("Edit failed");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const deleteAct = async () => {
+    if (!window.confirm("Delete this activity?")) return;
+    try {
+      setBusy(true);
+      await api.delete(
+        `/appointments/${appointmentId}/activities/${act._id}`
+      );
+      onDeleted(act._id);
+    } catch {
+      alert("Delete failed");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <>
+      <AccordionRow
+        open={open}
+        onToggle={() => setOpen(!open)}
+        header={
+          <div className="flex items-center gap-2">
+            <span className="font-medium">{act.name}</span>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setEdit(true);
+              }}
+              className="text-xs underline"
+            >
+              Edit
+            </button>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                deleteAct();
+              }}
+              className="text-xs text-red-600 underline"
+            >
+              Delete
+            </button>
+          </div>
+        }
+      >
+        <div
+          className="prose text-sm"
+          dangerouslySetInnerHTML={{ __html: marked.parse(act.description ?? "") }}
+        />
+      </AccordionRow>
+
+      <EditActivityModal
+        open={edit}
+        onClose={() => setEdit(false)}
+        activity={act}
+        onSave={saveEdit}
+      />
+    </>
+  );
+};
+
 
 /* ─── Dropdown + Chips ─── */
 const DropdownChips = ({
@@ -717,3 +958,4 @@ const DropdownChips = ({
     </div>
   </div>
 );
+

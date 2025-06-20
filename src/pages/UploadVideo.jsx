@@ -185,25 +185,16 @@ export default function UploadVideo() {
                     />
                   </div>
                 </div>
-              </div>
-
-              {/* Goals Selection Card */}
-              <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-8">
-                <div className="flex items-center mb-6">
-                  <Target className="w-6 h-6 text-primary mr-3" />
-                  <h2 className="text-xl font-semibold text-gray-900">Treatment Goals</h2>
-                </div>
-
-                <div ref={ddRef} className="relative">
+                <div ref={ddRef} className="relative mt-6">
                   <label className="block text-sm font-semibold text-gray-700 mb-3">
-                    Select Goals ({goalBank.length} available)
+                    Select Short Term Session Goals ({goalBank.length} available)
                   </label>
                   <button
                       type="button"
                       onClick={() => setDdOpen((o) => !o)}
                       className="w-full flex justify-between items-center px-4 py-3 border border-gray-300 rounded-lg bg-white hover:bg-gray-50 transition-colors duration-200 text-left"
                   >
-                    <span className="text-gray-600">Click to select treatment goals...</span>
+                    <span className="text-gray-600">Click to select Short Term Session Goals...</span>
                     <ChevronDown
                         className={`w-5 h-5 text-gray-400 transition-transform duration-200 ${ddOpen ? "rotate-180" : ""}`}
                     />
@@ -248,11 +239,18 @@ export default function UploadVideo() {
                 </div>
               </div>
 
+              {/* <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-8">
+                <div className="flex items-center mb-6">
+                  <Target className="w-6 h-6 text-primary mr-3" />
+                  <h2 className="text-xl font-semibold text-gray-900">Treatment Goals</h2>
+                </div>
+              </div> */}
+
               {/* Notes Card */}
               <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-8">
                 <div className="flex items-center mb-6">
                   <FileText className="w-6 h-6 text-primary mr-3" />
-                  <h2 className="text-xl font-semibold text-gray-900">Session Notes</h2>
+                  <h2 className="text-xl font-semibold text-gray-900">Additional Notes</h2>
                 </div>
 
                 <div>

@@ -408,20 +408,20 @@ export default function NewGroupModal({ open, onClose, onCreated }) {
               </div>
 
               {/* Button container at bottom */}
-              <div className="mt-8 pt-6 border-t border-gray-100">
-                <div className="flex justify-center gap-4">
+              <div className="mt-4 pt-2">
+                <div className="flex justify-end gap-4">
                   <button
                       type="button"
                       onClick={onClose}
                       disabled={isSubmitting}
-                      className="px-10 py-4 text-lg font-medium rounded-xl border-2 border-primary text-primary hover:bg-primary/10 transition-colors min-w-[140px] disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="px-4 py-2 rounded-xl border border-primary text-primary"
                   >
                     Cancel
                   </button>
                   <button
                       type="submit"
                       disabled={isSubmitting}
-                      className="px-10 py-4 text-lg font-medium rounded-xl bg-primary text-white hover:bg-primary/90 transition-colors min-w-[140px] disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="px-6 py-2 rounded-xl bg-primary text-white"
                   >
                     {isSubmitting ? "Creating..." : "Create Group Session"}
                   </button>

@@ -8,6 +8,7 @@ import SearchBar from '../components/SearchBar';
 import EditAppointmentModal from '../modals/EditAppointmentModal';
 import AppointmentCard from '../components/AppointmentCard';
 import AddButton from '../components/AddButton';
+import EditGroupAppointmentModal from '../modals/EditGroupAppointmentModal';
 import Navbar from '../components/Navbar';
 import Sidebar from '../components/Sidebar';
 import ClientCard from '../components/ClientCard';
@@ -36,6 +37,7 @@ export default function Dashboard() {
   const [showGroup, setShowGroup] = useState(false);
   const [showAppt, setShowAppt] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
+  const [editGrpAppt, setEditGrpAppt] = useState(null);
 
   // Toast state
   const [showToast, setShowToast] = useState(false);
@@ -84,13 +86,33 @@ export default function Dashboard() {
                   : c.group,
         }));
   }, [clients, qClient, groups]);
-  const filGroups = useMemo(
-      () =>
-          groups.filter(g =>
-              g.name.toLowerCase().includes(qGroup.toLowerCase())
-          ),
-      [groups, qGroup]
-  );
+
+/* ─── upcoming Group-appointments, merged with full Group objects ─── */
+const groupAppts = useMemo(() => {
+  return appts
+    .filter((a) => a.type === "group" && a.group)
+    .filter((a) =>
+      a.group.name.toLowerCase().includes(qGroup.toLowerCase())
+    )
+    .reduce((map, appt) => {
+      const id = appt.group._id;
+
+      /* merge the slim populate('group','name') stub with the full group
+         record (has patients, avatarUrl, …) so GroupCard is happy        */
+      const full = groups.find((g) => g._id === id);
+      const mergedGroup = full ? { ...full } : { ...appt.group, patients: [] };
+
+      /* keep the earli­est upcoming appt per group (cleaner UI) */
+      if (
+        !map[id] ||
+        new Date(appt.dateTimeStart) < new Date(map[id].dateTimeStart)
+      ) {
+        map[id] = { ...appt, group: mergedGroup };
+      }
+      return map;
+    }, {});
+}, [appts, groups, qGroup]);
+
 
   /* ─── Appointments for the selected day ──────────── */
   const dayAppts = useMemo(() => {
@@ -99,6 +121,20 @@ export default function Dashboard() {
         a => format(new Date(a.dateTimeStart), 'yyyy-MM-dd') === key
     );
   }, [appts, selectedDay]);
+
+  const nextApptOf = useMemo(() => {
+  const now = Date.now();
+  const map = {};
+  appts
+    .filter(a => a.type === "group" && a.group?._id)
+    .forEach(a => {
+      const gid = a.group._id;
+      const ts  = new Date(a.dateTimeStart).getTime();
+      if (ts >= now && (!map[gid] || ts < new Date(map[gid].dateTimeStart).getTime()))
+        map[gid] = a;
+    });
+  return map;                   // { groupId: appointmentObj }
+}, [appts]);
 
   /* ─── Toast handlers ──────────────────────────── */
   const handleToastClose = () => {
@@ -140,9 +176,11 @@ export default function Dashboard() {
   };
 
   const handleGroupDeleted = (group) => {
-    setGroups(list => list.filter(x => x._id !== group._id));
-    showSuccessToast(`Group session "${group.name}" deleted successfully.`);
-  };
+  setGroups(list => list.filter(x => x._id !== group._id));
+  /* also drop every appointment that belonged to this group */
+  setAppts(list => list.filter(a => !(a.type === "group" && a.group?._id === group._id)));
+  showSuccessToast(`Group session "${group.name}" and its appointments were deleted.`);
+};
 
   /* ─── Status Chip component ──────────────────────── */
   const Chip = ({ status }) => {
@@ -244,25 +282,30 @@ export default function Dashboard() {
 
               <AddButton text="New Group Session" onClick={() => setShowGroup(true)} />
 
-              <div className="space-y-1 max-h-[70vh] overflow-y-auto pr-1">
-                {filGroups.map(g => (
-                    <GroupCard
-                        key={g._id}
-                        g={g}
-                        onDelete={g => setDelGroup(g)}
-                        isExpanded={expandedGroups.has(g._id)}
+                <div className="space-y-1 max-h-[70vh] overflow-y-auto pr-1">
+                {Object.values(groupAppts).length ? (
+                    Object.values(groupAppts).map((appt) => (
+                      <GroupCard
+                        key={appt.group._id}
+                        g={appt.group}                 /* full Group object           */
+                        appt={appt}                    /* ← pass full appointment     */
+                        nextSession={appt.dateTimeStart}
+                        onDelete={() => setDelGroup(appt.group)}
+                        onEdit={setEditGrpAppt}        /* ← opens EditGroupAppointmentModal */
+                        isExpanded={expandedGroups.has(appt.group._id)}
                         onToggleExpanded={() => {
-                          const newExpanded = new Set(expandedGroups);
-                          if (newExpanded.has(g._id)) {
-                            newExpanded.delete(g._id);
-                          } else {
-                            newExpanded.add(g._id);
-                          }
-                          setExpandedGroups(newExpanded);
+                          const s = new Set(expandedGroups);
+                          s.has(appt.group._id) ? s.delete(appt.group._id) : s.add(appt.group._id);
+                          setExpandedGroups(s);
                         }}
-                    />
-                ))}
-              </div>
+                      />
+                    ))
+                  ) : (
+                    <p className="text-sm text-gray-400 text-center mt-4">
+                      No group appointments
+                    </p>
+                  )}
+                </div>
             </section>
           </main>
         </div>
@@ -311,6 +354,13 @@ export default function Dashboard() {
             open={!!uploadAppt}
             appointment={uploadAppt}
             onClose={() => setUploadAppt(null)}
+        />
+
+        <EditGroupAppointmentModal
+          open={!!editGrpAppt}
+          appt={editGrpAppt}
+          onClose={()=>setEditGrpAppt(null)}
+          onUpdated={upd => setAppts(p=>p.map(a=>a._id===upd._id?upd:a))}
         />
 
         {/* Success/Error Toast */}
