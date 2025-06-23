@@ -9,6 +9,11 @@ import ResetSuccess           from './pages/ResetSuccess';
 import BehaviourBank          from './pages/BehaviourBank';
 import UploadVideoPage        from './pages/UploadVideo';
 import SessionReview          from './pages/SessionReview';
+import PatientAnalysis from './pages/PatientAnalysis';
+import EditClientPage         from './pages/EditClientPage';
+import RecordSession          from './pages/RecordSession';
+import AnnualGoals from './pages/AnnualGoals';
+import SessionPatientView     from './pages/SessionPatientView';
 
 // ↓ Add this import:
 import RecommendationRouter   from './pages/RecommendationRouter';
@@ -26,8 +31,15 @@ export default function App() {
           <Route path="/reset-success"            element={<ResetSuccess />} />
           <Route path="/behaviours"               element={<BehaviourBank />} />
           <Route path="/appointments/:id/upload"  element={<UploadVideoPage />} />
+          <Route path="/appointments/:id/record" element={<RecordSession />} />
           <Route path="/videos/:id/review"        element={<SessionReview />} />
-
+          <Route path="/clients/:id/analysis"     element={<PatientAnalysis/>}/>
+          <Route path="/clients/:id/edit"         element={<EditClientPage />} />
+          <Route path="/annual-goals"             element={<AnnualGoals />} />
+          <Route
+  path="/appointments/:appointmentId/patient/:patientId"
+  element={<SessionPatientView />}
+/>
           {/* ── New route to render either Group or Individual Recommendations ── */}
           <Route 
             path="/appointments/:id/recommendations" 

@@ -38,7 +38,7 @@ export default function MemberSelect({ clients, value, onChange }) {
 
   return (
     <div ref={boxRef} className="space-y-2">
-      <label className="block text-sm font-medium">Group Members</label>
+      <label className="block text-sm font-medium">Member Selection</label>
 
       {/* search box */}
       <input
