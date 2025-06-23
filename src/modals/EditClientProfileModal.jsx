@@ -25,6 +25,7 @@ export default function EditClientProfileModal({
   const [histInput, setHistInput] = useState("");
   const [avatarFile, setFile] = useState(null);
   const nameRef = useRef(null);
+  const [grade, setGrade]     = useState("");
 
   /* reset every time the modal opens */
   useEffect(() => {
@@ -35,6 +36,7 @@ export default function EditClientProfileModal({
       setGroup(client.group?._id || client.group || "");
       setHistory(Array.isArray(client.pastHistory) ? client.pastHistory : []);
       setHistInput("");
+      setGrade(client.grade ?? "");    
       setFile(null);
       setTimeout(() => nameRef.current?.focus(), 140);
     }
@@ -55,6 +57,7 @@ export default function EditClientProfileModal({
     e.preventDefault();
     onSave({
       name: name.trim(),
+      grade: grade.trim(),
       age:  age === "" ? null : Number(age),
       address: address.trim(),
       group: groupId || null,
@@ -95,11 +98,12 @@ export default function EditClientProfileModal({
             value={age}
             onChange={setAge}
           />
+           
         </div>
+        <Field label="Grade" value={grade} onChange={setGrade} />
+        {/* <Field label="Address" value={address} onChange={setAddress} /> */}
 
-        <Field label="Address" value={address} onChange={setAddress} />
-
-        {/* GROUP DROPDOWN */}
+        {/* GROUP DROPDOWN
         <div className="flex flex-col">
           <label className="text-sm font-medium text-gray-700 mb-1">Group</label>
           <select
@@ -114,11 +118,11 @@ export default function EditClientProfileModal({
               </option>
             ))}
           </select>
-        </div>
+        </div> */}
 
         {/* PAST HISTORY chips */}
         <div>
-          <p className="text-sm font-medium text-gray-700 mb-1">Past History</p>
+          <p className="text-sm font-medium text-gray-700 mb-1">Diagnosis</p>
           <div className="flex gap-2">
             <input
               value={histInput}

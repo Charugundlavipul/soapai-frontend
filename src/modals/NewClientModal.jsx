@@ -95,7 +95,7 @@ export default function NewClientModal({ open, onClose, onCreated }) {
 
         {/* past-history chips */}
         <ChipInput
-          label="Past History"
+          label="Diagnosis"
           value={form.pastHistory}
           onChange={v => setForm(f => ({ ...f, pastHistory:v }))}
           placeholder="Type and press Enter"

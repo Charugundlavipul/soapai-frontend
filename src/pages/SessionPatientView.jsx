@@ -262,7 +262,7 @@ export default function SessionPatientView() {
 
           {/* Past History */}
           <div className="bg-white rounded-xl p-4 mt-6 shadow-sm">
-            <h4 className="text-lg font-medium text-gray-800">Past History</h4>
+            <h4 className="text-lg font-medium text-gray-800">Diagnosis</h4>
             <p className="text-sm text-gray-700 mt-1">
               {(client.pastHistory || []).join(", ") || "—"}
             </p>

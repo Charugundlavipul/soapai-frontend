@@ -297,7 +297,7 @@ const downloadPdf = async () => {
       <h3 className="text-xl font-semibold text-gray-900">{client.name}</h3>
       <p className="text-sm text-gray-500">Age: {client.age ?? "—"}</p>
       <p className="text-sm text-gray-500">
-        Past History:&nbsp;
+        Diagnosis:&nbsp;
         {(client.pastHistory || []).join(", ") || "—"}
       
     </p>

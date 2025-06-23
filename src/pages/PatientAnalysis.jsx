@@ -260,7 +260,7 @@ export default function PatientAnalysis() {
 
               <div className="space-y-1 text-sm">
                 <div className="flex justify-between">
-                  <span className="text-gray-600">Past History:</span>
+                  <span className="text-gray-600">Diagnosis:</span>
                   <span className="text-gray-900">
                     {(patient.pastHistory ?? []).join(", ") || "—"}
                   </span>
