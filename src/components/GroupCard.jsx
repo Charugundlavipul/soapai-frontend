@@ -6,17 +6,28 @@ import {
 } from "@heroicons/react/24/solid";
 import Avatar from "./Avatar";
 
-
+/**
+ * GroupCard
+ * -------------------------------------------------
+ * Props
+ *  g             – full Group document (name, avatar, patients[])
+ *  appt          – the **next upcoming appointment** for that group
+ *  futureCount   – total future appointments *including* `appt`
+ *  isExpanded    – controlled open state  (optional)
+ *  onToggleExpanded()
+ *  onEdit(appt)  – edit that single appointment
+ *  onDelete(appt)– open delete/confirm modal (can cascade to whole group)
+ */
 export default function GroupCard({
   g,
-  appt,              /* ← add the appointment */
-  nextSession,
+  appt,
+  futureCount = 1,
   isExpanded,
   onToggleExpanded,
   onEdit,
   onDelete,
 }) {
-  /* allow either controlled or internal open state */
+  /* allow either controlled or uncontrolled accordion */
   const [internalOpen, setInternalOpen] = useState(false);
   const open = isExpanded !== undefined ? isExpanded : internalOpen;
 
@@ -26,8 +37,8 @@ export default function GroupCard({
       : setInternalOpen((o) => !o);
 
   /* friendly date-time label */
-  const sessionLabel = nextSession
-    ? new Date(nextSession).toLocaleString(undefined, {
+  const nextLabel = appt
+    ? new Date(appt.dateTimeStart).toLocaleString(undefined, {
         dateStyle: "medium",
         timeStyle: "short",
       })
@@ -47,8 +58,16 @@ export default function GroupCard({
           <p className="text-xs text-gray-500">
             Clients: {g.patients?.length ?? 0}
           </p>
-          {sessionLabel && (
-            <p className="text-xs text-gray-500">Next: {sessionLabel}</p>
+
+          {nextLabel && (
+            <p className="text-xs text-gray-500">
+              Next: {nextLabel}
+              {futureCount > 1 && (
+                <span className="ml-1 text-primary font-semibold">
+                  &nbsp;+{futureCount - 1}
+                </span>
+              )}
+            </p>
           )}
         </div>
 
@@ -62,9 +81,9 @@ export default function GroupCard({
       {/* ── Expanded content ── */}
       {open && (
         <div className="mt-3 space-y-2 pl-13">
-          {sessionLabel && (
+          {nextLabel && (
             <p className="text-xs text-gray-400">
-              Upcoming&nbsp;session:&nbsp;{sessionLabel}
+              Upcoming session:&nbsp;{nextLabel}
             </p>
           )}
 
@@ -72,23 +91,23 @@ export default function GroupCard({
             <button
               onClick={(e) => {
                 e.stopPropagation();
-                onEdit?.(appt);
+                onEdit?.(appt); // pass the appointment
               }}
               className="flex-1 py-1 rounded bg-primary text-white text-sm flex items-center justify-center gap-1"
             >
               <PencilIcon className="h-4 w-4" />
-              Edit Group
+              Edit Session
             </button>
 
             <button
               onClick={(e) => {
                 e.stopPropagation();
-                onDelete?.(g);
+                onDelete?.(appt); // also pass the appointment
               }}
               className="flex-1 py-1 rounded border border-primary text-primary text-sm flex items-center justify-center gap-1"
             >
               <TrashIcon className="h-4 w-4" />
-              Delete Group
+              Delete
             </button>
           </div>
         </div>

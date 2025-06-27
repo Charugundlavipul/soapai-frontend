@@ -9,6 +9,7 @@ import { marked } from "marked";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
 import Avatar from "../components/Avatar";
+import ActivityGenerator from "../components/ActivityGenerator";
 
 const api = axios.create({
   baseURL: "http://localhost:4000/api",
@@ -59,6 +60,7 @@ export default function IndividualRecommendations() {
   const [error,   setError]          = useState(false);
   const [client,  setClient]         = useState(null);
   const [recommendation, setRecommendation] = useState(null);
+  const [activities, setActivities] = useState([]); // for ActivityGenerator
 
   /* ─── UI state ─── */
   const [activeTab, setActiveTab]     = useState("visitNotes");
@@ -80,6 +82,7 @@ export default function IndividualRecommendations() {
           if (!appt.patient) throw new Error("No patient linked");
           targetId   = appt.patient._id;
           setApptStart(appt.dateTimeStart);
+          setActivities(appt.activities || []);
         }
         const [pRes, recRes] = await Promise.all([
           api.get(`/clients/${targetId}`),
@@ -414,101 +417,15 @@ const downloadPdf = async () => {
 
             {/* ---- ACTIVITY GENERATOR ---- */}
             {activeTab === "activityGenerator" && (
-              <div className="bg-[#F5F4FB] rounded-2xl p-6 shadow-sm space-y-6">
-                <h4 className="text-xl font-semibold text-gray-800 mb-5">
-                  Activity Generator
-                </h4>
+            <ActivityGenerator
+            mode="individual"
+            appointmentId={appointmentId}
+            patients={[client]}              // single-element array
+            allGoals={client.goals || []}
+            initialActivities={activities}   // fetched exactly like in group page
+            onActivitiesChange={setActivities}
+          />
 
-                {/* Goal chips */}
-                <div className="flex flex-col">
-                  <label className="text-sm font-medium text-gray-700 mb-1">
-                    Select Activity Goals
-                  </label>
-                  <select
-                    value=""
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      if (v && !selectedGoals.includes(v))
-                        setSelectedGoals([...selectedGoals, v]);
-                    }}
-                    className="border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary focus:border-primary"
-                  >
-                    <option value="">Select Goal</option>
-                    {(client.goals || []).map((g) => (
-                      <option key={g} value={g}>
-                        {g}
-                      </option>
-                    ))}
-                  </select>
-
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {selectedGoals.map((g) => (
-                      <span
-                        key={g}
-                        className="flex items-center gap-1 bg-primary text-white rounded-full px-3 py-1 text-sm"
-                      >
-                        {g}
-                        <button
-                          onClick={() =>
-                            setSelectedGoals(
-                              selectedGoals.filter((x) => x !== g)
-                            )
-                          }
-                          className="ml-1 font-bold text-white/80 hover:text-white/60"
-                        >
-                          ×
-                        </button>
-                      </span>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Duration */}
-                <div className="flex items-center gap-3">
-                  <label className="text-sm font-medium text-gray-700">
-                    Duration
-                  </label>
-                  <select
-                    value={duration}
-                    onChange={(e) => setDuration(e.target.value)}
-                    className="border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary focus:border-primary"
-                  >
-                    <option>15 Minutes</option>
-                    <option>30 Minutes</option>
-                    <option>45 Minutes</option>
-                    <option>60 Minutes</option>
-                  </select>
-                </div>
-
-                <button
-                  onClick={generateActivity}
-                  disabled={busy}
-                  className="bg-primary text-white rounded-full px-6 py-2 w-fit hover:bg-primary/90 disabled:opacity-60"
-                >
-                  {busy ? "Generating…" : "Generate Activity"}
-                </button>
-
-                {planMD && (
-                  <div className="space-y-4 w-full">
-                    <div
-                      ref={editorRef}
-                      contentEditable
-                      suppressContentEditableWarning
-                      dangerouslySetInnerHTML={{ __html: editorHtml }}
-                      onInput={(e) =>
-                        setEditorHtml(e.currentTarget.innerHTML)
-                      }
-                      className="min-h-[200px] border rounded-md p-3 bg-white text-sm overflow-auto"
-                    />
-                    <button
-                      onClick={downloadPdf}
-                      className="bg-primary text-white px-4 py-2 rounded-full hover:bg-primary/90"
-                    >
-                      Download as PDF
-                    </button>
-                  </div>
-                )}
-              </div>
             )}
           </div>
         </div>

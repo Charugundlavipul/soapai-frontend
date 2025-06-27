@@ -66,7 +66,4 @@ export function deleteGoal(catId, goalId) {
   return api.delete(`/annual-goals/${catId}/goals/${goalId}`);
 }
 
-
-
-
 export default api;

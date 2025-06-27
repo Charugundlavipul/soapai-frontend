@@ -3,7 +3,7 @@ import { useEffect, useState, useMemo } from 'react';
 import { format } from 'date-fns';
 import { useNavigate } from 'react-router-dom';
 import api from '../services/api';
-
+import { differenceInCalendarDays, isAfter, addDays} from "date-fns";
 import SearchBar from '../components/SearchBar';
 import EditAppointmentModal from '../modals/EditAppointmentModal';
 import AppointmentCard from '../components/AppointmentCard';
@@ -38,7 +38,7 @@ export default function Dashboard() {
   const [showAppt, setShowAppt] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
   const [editGrpAppt, setEditGrpAppt] = useState(null);
-
+  const DAYS_AHEAD = 100;
   // Toast state
   const [showToast, setShowToast] = useState(false);
   const [toastMessage, setToastMessage] = useState("");
@@ -89,26 +89,31 @@ export default function Dashboard() {
 
 /* ─── upcoming Group-appointments, merged with full Group objects ─── */
 const groupAppts = useMemo(() => {
-  return appts
-    .filter((a) => a.type === "group" && a.group)
-    .filter((a) =>
-      a.group.name.toLowerCase().includes(qGroup.toLowerCase())
-    )
-    .reduce((map, appt) => {
-      const id = appt.group._id;
+  const now      = new Date();
+  const horizon  = addDays(now, DAYS_AHEAD);
 
-      /* merge the slim populate('group','name') stub with the full group
-         record (has patients, avatarUrl, …) so GroupCard is happy        */
-      const full = groups.find((g) => g._id === id);
-      const mergedGroup = full ? { ...full } : { ...appt.group, patients: [] };
+  // 1️⃣  bucket every future appointment by its group id
+  const byGroup = {};
+  appts
+    .filter(a => a.type === "group" && a.group && isAfter(new Date(a.dateTimeStart), now))
+    .forEach(a => {
+      const gid = a.group._id;
+      byGroup[gid] = [...(byGroup[gid] || []), a];
+    });
 
-      /* keep the earli­est upcoming appt per group (cleaner UI) */
-      if (
-        !map[id] ||
-        new Date(appt.dateTimeStart) < new Date(map[id].dateTimeStart)
-      ) {
-        map[id] = { ...appt, group: mergedGroup };
-      }
+  // 2️⃣  keep only groups whose *next* session is within the window
+  return Object.values(byGroup)
+    .map(list => list.sort((a,b) => new Date(a.dateTimeStart) - new Date(b.dateTimeStart)))
+    .filter(sorted => differenceInCalendarDays(new Date(sorted[0].dateTimeStart), now) <= DAYS_AHEAD)
+    .reduce((map, list) => {
+      const next   = list[0];             // soonest appointment
+      const gid    = next.group._id;
+      const fullG  = groups.find(g => g._id === gid) || next.group;
+      map[gid] = {
+        ...next,
+        group      : fullG,               // full Group document
+        futureCount: list.length,         // how many upcoming in total
+      };
       return map;
     }, {});
 }, [appts, groups, qGroup]);
@@ -146,6 +151,24 @@ const groupAppts = useMemo(() => {
     setToastType("success");
     setShowToast(true);
   };
+
+    /* remove ONE appointment (may or may not leave the group intact) */
+  const handleGroupApptDeleted = (appt) => {
+    /* drop the appointment row */
+    setAppts(list => list.filter(a => a._id !== appt._id));
+
+    /* if that was the *last* appt for this group, also nuke the group row
+       from the Dashboard list – the DB is already cleaned up by the backend */
+    const stillHas = list => list.some(a =>
+      a.type === "group" && a.group?._id === appt.group._id && a._id !== appt._id
+    );
+    if (!stillHas(appts)) {
+      setGroups(gs => gs.filter(g => g._id !== appt.group._id));
+    }
+
+    showSuccessToast("Appointment deleted.");
+  };
+
 
   const showErrorToast = (message) => {
     setToastMessage(message);
@@ -288,9 +311,10 @@ const groupAppts = useMemo(() => {
                       <GroupCard
                         key={appt.group._id}
                         g={appt.group}                 /* full Group object           */
-                        appt={appt}                    /* ← pass full appointment     */
+                        appt={appt}
+                        futureCount={appt.futureCount}                    /* ← pass full appointment     */
                         nextSession={appt.dateTimeStart}
-                        onDelete={() => setDelGroup(appt.group)}
+                        onDelete={() => setDelGroup(appt)}
                         onEdit={setEditGrpAppt}        /* ← opens EditGroupAppointmentModal */
                         isExpanded={expandedGroups.has(appt.group._id)}
                         onToggleExpanded={() => {
@@ -333,12 +357,14 @@ const groupAppts = useMemo(() => {
             onDeleted={handleClientDeleted}
         />
 
-        <DeleteGroupModal
-            open={!!delGroup}
-            group={delGroup}
-            onClose={() => setDelGroup(null)}
-            onDeleted={handleGroupDeleted}
-        />
+      <DeleteGroupModal
+  open={!!delGroup}
+  appt={delGroup}
+  onClose={() => setDelGroup(null)}
+  onDeleted={handleGroupDeleted}        // “Delete ALL Appointments”
+  onApptDeleted={handleGroupApptDeleted}/* “Delete This Appointment” */
+/>
+
 
         <EditProfileModal open={showProfile} onClose={() => setShowProfile(false)} />
 
