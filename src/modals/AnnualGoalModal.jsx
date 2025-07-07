@@ -124,7 +124,7 @@ export default function AnnualGoalModal({
     <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/30">
       <div className="bg-white rounded-2xl p-6 w-full max-w-lg shadow-xl space-y-6">
         <h3 className="text-xl font-semibold">
-          {category ? "Edit Annual-Goal Category" : "New Annual-Goal Category"}
+          {category = "New Annual-Goal Category"}
         </h3>
 
         <div className="space-y-5">

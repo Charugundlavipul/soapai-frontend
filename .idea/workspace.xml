@@ -5,13 +5,10 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="b1cc2c70-f582-4a34-bfe5-b31e4eabfe3a" name="Changes" comment="">
-      <change afterPath="$PROJECT_DIR$/.idea/inspectionProfiles/Project_Default.xml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.idea/vcs.xml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/modals/createGoalModel.jsx" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/modals/AnnualGoalModal.jsx" beforeDir="false" afterPath="$PROJECT_DIR$/src/modals/AnnualGoalModal.jsx" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/modals/NewClientModal.jsx" beforeDir="false" afterPath="$PROJECT_DIR$/src/modals/NewClientModal.jsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/modals/NewGroupModal.jsx" beforeDir="false" afterPath="$PROJECT_DIR$/src/modals/NewGroupModal.jsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/pages/Dashboard.jsx" beforeDir="false" afterPath="$PROJECT_DIR$/src/pages/Dashboard.jsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/modals/createGoalModel.jsx" beforeDir="false" afterPath="$PROJECT_DIR$/src/modals/createGoalModel.jsx" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -85,7 +82,7 @@
       <updated>1749757130384</updated>
       <workItem from="1749757131628" duration="39629000" />
       <workItem from="1751748451187" duration="10041000" />
-      <workItem from="1751922698260" duration="395000" />
+      <workItem from="1751922698260" duration="5178000" />
     </task>
     <servers />
   </component>

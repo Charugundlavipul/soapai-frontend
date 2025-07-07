@@ -1,11 +1,11 @@
 "use client"
 
-import { useState, useRef } from "react"
-import { PlusIcon, PencilSquareIcon, TrashIcon } from "@heroicons/react/24/solid"
-import { postCategory } from "../services/api"
+import { useState, useRef, useEffect } from "react"
+import { XMarkIcon, ChevronDownIcon } from "@heroicons/react/24/solid"
+import { getCategories, updateCategory } from "../services/api"
 
 /**
- * Simple Goal Creation Modal - for creating new goal categories and goals
+ * Goal Creation Modal - for adding new goals to existing categories
  * Used within NewClientModal when users need to create goals that don't exist
  */
 export default function GoalManagementModal({
@@ -14,76 +14,64 @@ export default function GoalManagementModal({
                                                 onGoalBankUpdated, // callback to refresh the goal bank in parent
                                             }) {
     /* ───── state ───── */
-    const [categoryName, setCategoryName] = useState("")
-    const [categoryDesc, setCategoryDesc] = useState("")
-    const [goals, setGoals] = useState([]) // [{ name, description }]
+    const [categories, setCategories] = useState([])
+    const [selectedCategory, setSelectedCategory] = useState(null)
+    const [categoryDropdownOpen, setCategoryDropdownOpen] = useState(false)
 
     /* single goal draft */
     const [goalName, setGoalName] = useState("")
     const [goalDesc, setGoalDesc] = useState("")
-    const [editingGoalIdx, setEditingGoalIdx] = useState(null)
 
     const nameRef = useRef(null)
+    const categoryRef = useRef(null)
+
+    /* ───── fetch categories when modal opens ───── */
+    useEffect(() => {
+        if (open) {
+            fetchCategories()
+            resetForm()
+        }
+    }, [open])
+
+    const fetchCategories = async () => {
+        try {
+            const { data } = await getCategories()
+            setCategories(data)
+        } catch (error) {
+            console.error("Failed to fetch categories:", error)
+        }
+    }
 
     /* ───── reset form when modal opens ───── */
     const resetForm = () => {
-        setCategoryName("")
-        setCategoryDesc("")
-        setGoals([])
+        setSelectedCategory(null)
         setGoalName("")
         setGoalDesc("")
-        setEditingGoalIdx(null)
+        setCategoryDropdownOpen(false)
     }
 
-    /* ───── goal operations ───── */
-    const addOrUpdateGoal = () => {
-        const name = goalName.trim()
-        if (!name) return
+    /* click-outside dropdown */
+    useEffect(() => {
+        const h = (e) => categoryRef.current && !categoryRef.current.contains(e.target) && setCategoryDropdownOpen(false)
+        if (categoryDropdownOpen) document.addEventListener("mousedown", h)
+        return () => document.removeEventListener("mousedown", h)
+    }, [categoryDropdownOpen])
 
-        if (editingGoalIdx !== null) {
-            // Update existing goal
-            setGoals((prevGoals) =>
-                prevGoals.map((goal, i) => (i === editingGoalIdx ? { name, description: goalDesc.trim() } : goal)),
-            )
-        } else if (!goals.find((g) => g.name === name)) {
-            // Add new goal
-            setGoals((prev) => [...prev, { name, description: goalDesc.trim() }])
+    /* ───── save goal to selected category ───── */
+    const saveGoal = async () => {
+        if (!selectedCategory) {
+            alert("Please select a category.")
+            return
         }
 
-        // Reset goal form
-        setGoalName("")
-        setGoalDesc("")
-        setEditingGoalIdx(null)
-    }
-
-    const startEditGoal = (index) => {
-        const goal = goals[index]
-        setGoalName(goal.name)
-        setGoalDesc(goal.description || "")
-        setEditingGoalIdx(index)
-    }
-
-    const removeGoal = (index) => {
-        setGoals((prevGoals) => prevGoals.filter((_, i) => i !== index))
-        if (editingGoalIdx === index) {
-            setGoalName("")
-            setGoalDesc("")
-            setEditingGoalIdx(null)
-        }
-    }
-
-    /* ───── save category ───── */
-    const saveCategory = async () => {
-        if (!categoryName.trim() || goals.length === 0) {
-            alert("Category name and at least one goal are required.")
+        if (!goalName.trim()) {
+            alert("Goal name is required.")
             return
         }
 
         try {
-            const { data } = await postCategory({
-                name: categoryName,
-                description: categoryDesc,
-                goals: goals,
+            const { data } = await updateCategory(selectedCategory._id, {
+                addGoals: [{ name: goalName.trim(), description: goalDesc.trim() }],
             })
 
             // Notify parent to refresh goal bank
@@ -93,7 +81,7 @@ export default function GoalManagementModal({
             resetForm()
             onClose()
         } catch (error) {
-            alert(error.response?.data?.message || "Failed to create category")
+            alert(error.response?.data?.message || "Failed to add goal")
         }
     }
 
@@ -106,113 +94,104 @@ export default function GoalManagementModal({
 
     /* ───── render ───── */
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-            <div className="bg-white rounded-2xl p-6 w-full max-w-lg shadow-xl">
-                <div className="flex justify-between items-center mb-6">
-                    <h2 className="text-xl font-semibold">Create New Goal Category</h2>
-                    <button onClick={handleClose} className="text-gray-400 hover:text-gray-600">
-                        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                        </svg>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+            <div className="bg-white rounded-2xl w-full max-w-lg shadow-xl max-h-[90vh] overflow-y-auto">
+                {/* Header */}
+                <div className="flex justify-between items-center p-6 pb-4">
+                    <h2 className="text-xl font-semibold text-primary">Add New Goal</h2>
+                    <button onClick={handleClose} className="text-gray-400 hover:text-gray-600 p-1">
+                        <XMarkIcon className="w-5 h-5" />
                     </button>
                 </div>
 
-                <div className="space-y-5">
-                    {/* Category Name & Description */}
-                    <input
-                        ref={nameRef}
-                        value={categoryName}
-                        onChange={(e) => setCategoryName(e.target.value)}
-                        placeholder="Category name"
-                        className="w-full border rounded-md px-3 py-2"
-                        autoFocus
-                    />
-                    <textarea
-                        value={categoryDesc}
-                        onChange={(e) => setCategoryDesc(e.target.value)}
-                        rows={3}
-                        placeholder="Category description (optional)"
-                        className="w-full border rounded-md px-3 py-2 resize-none"
-                    />
-
-                    {/* Goal Form */}
-                    <div className="space-y-1">
-                        <label className="text-sm font-medium">{editingGoalIdx !== null ? "Edit Goal" : "Add Goal"}</label>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                            <input
-                                value={goalName}
-                                onChange={(e) => setGoalName(e.target.value)}
-                                placeholder="Goal name"
-                                className="border rounded-md px-3 py-2"
-                            />
-                            <input
-                                value={goalDesc}
-                                onChange={(e) => setGoalDesc(e.target.value)}
-                                placeholder="Goal description (optional)"
-                                className="border rounded-md px-3 py-2"
-                            />
-                        </div>
+                {/* Content */}
+                <div className="px-6 pb-6 space-y-6">
+                    {/* Category Selection */}
+                    <div ref={categoryRef} className="space-y-2 relative">
+                        <label className="text-sm font-medium text-gray-900">Select Category</label>
                         <button
                             type="button"
-                            onClick={addOrUpdateGoal}
-                            disabled={!goalName.trim()}
-                            className="mt-2 inline-flex items-center gap-1 bg-primary text-white px-4 py-2 rounded-md disabled:opacity-40"
+                            onClick={() => setCategoryDropdownOpen((o) => !o)}
+                            className="w-full flex justify-between items-center px-4 py-3 bg-gray-50 rounded-xl text-sm text-gray-500 hover:bg-gray-100 transition-colors"
                         >
-                            {editingGoalIdx !== null ? (
-                                <>
-                                    <PencilSquareIcon className="h-4 w-4" /> Update Goal
-                                </>
-                            ) : (
-                                <>
-                                    <PlusIcon className="h-4 w-4" /> Add Goal
-                                </>
-                            )}
+              <span className={selectedCategory ? "text-gray-900" : ""}>
+                {selectedCategory ? selectedCategory.name : "Choose a category..."}
+              </span>
+                            <ChevronDownIcon className={`h-4 w-4 transition-transform ${categoryDropdownOpen ? "rotate-180" : ""}`} />
                         </button>
-                    </div>
 
-                    {/* Goals List */}
-                    <div className="space-y-2">
-                        <label className="text-sm font-medium">Goals in this category ({goals.length})</label>
-                        {goals.length > 0 ? (
-                            <div className="space-y-2">
-                                {goals.map((goal, index) => (
-                                    <div key={index} className="flex items-start justify-between bg-gray-50 rounded-md p-3">
-                                        <div className="text-sm">
-                                            <p className="font-medium">{goal.name}</p>
-                                            {goal.description && <p className="text-gray-600">{goal.description}</p>}
-                                        </div>
-                                        <div className="flex gap-2">
-                                            <PencilSquareIcon
-                                                onClick={() => startEditGoal(index)}
-                                                className="h-5 w-5 text-primary cursor-pointer"
-                                                title="Edit"
-                                            />
-                                            <TrashIcon
-                                                onClick={() => removeGoal(index)}
-                                                className="h-5 w-5 text-red-500 cursor-pointer"
-                                                title="Delete"
-                                            />
-                                        </div>
+                        {categoryDropdownOpen && (
+                            <div className="absolute z-50 mt-1 w-full max-h-60 overflow-y-auto bg-white border border-gray-200 rounded-xl shadow-lg">
+                                {categories.length > 0 ? (
+                                    categories.map((category) => (
+                                        <button
+                                            key={category._id}
+                                            type="button"
+                                            onClick={() => {
+                                                setSelectedCategory(category)
+                                                setCategoryDropdownOpen(false)
+                                            }}
+                                            className="w-full px-4 py-3 text-left hover:bg-gray-50 text-sm font-medium text-gray-900"
+                                        >
+                                            {category.name}
+                                        </button>
+                                    ))
+                                ) : (
+                                    <div className="px-4 py-6 text-gray-400 text-center text-sm">
+                                        No categories available. Please create categories first.
                                     </div>
-                                ))}
+                                )}
                             </div>
-                        ) : (
-                            <p className="text-sm text-gray-400 italic">No goals added yet</p>
                         )}
                     </div>
+
+                    {/* Goal Name */}
+                    <div className="space-y-2">
+                        <label className="text-sm font-medium text-gray-900">Goal Name</label>
+                        <input
+                            ref={nameRef}
+                            value={goalName}
+                            onChange={(e) => setGoalName(e.target.value)}
+                            placeholder="Enter goal name"
+                            className="w-full bg-gray-50 border-0 rounded-xl px-4 py-3 text-sm placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-primary/20"
+                            autoFocus
+                        />
+                    </div>
+
+                    {/* Goal Description */}
+                    <div className="space-y-2">
+                        <label className="text-sm font-medium text-gray-900">Goal Description (Optional)</label>
+                        <textarea
+                            value={goalDesc}
+                            onChange={(e) => setGoalDesc(e.target.value)}
+                            rows={3}
+                            placeholder="Enter goal description"
+                            className="w-full bg-gray-50 border-0 rounded-xl px-4 py-3 text-sm placeholder-gray-500 resize-none focus:outline-none focus:ring-2 focus:ring-primary/20"
+                        />
+                    </div>
+
+                    {/* Selected Category Preview - Simplified */}
+                    {selectedCategory && (
+                        <div className="bg-primary/10 border border-primary/40 rounded-xl p-4">
+                            <h4 className="text-sm font-medium text-primary">Adding to: {selectedCategory.name}</h4>
+                        </div>
+                    )}
                 </div>
 
                 {/* Footer */}
-                <div className="flex justify-end gap-3 pt-6">
-                    <button onClick={handleClose} className="px-4 py-2 rounded-lg bg-gray-200 text-gray-700 hover:bg-gray-300">
+                <div className="flex justify-end gap-3 p-6 pt-4 border-t border-gray-100">
+                    <button
+                        onClick={handleClose}
+                        className="px-6 py-2.5 rounded-xl bg-gray-100 text-gray-700 font-medium hover:bg-gray-200 transition-colors"
+                    >
                         Cancel
                     </button>
                     <button
-                        onClick={saveCategory}
-                        disabled={!categoryName.trim() || goals.length === 0}
-                        className="px-5 py-2 rounded-lg bg-primary text-white hover:bg-primary/90 disabled:opacity-40 disabled:cursor-not-allowed"
+                        onClick={saveGoal}
+                        disabled={!selectedCategory || !goalName.trim()}
+                        className="px-6 py-2.5 rounded-xl bg-primary text-white font-medium hover:bg-primary/90 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                     >
-                        Create Category
+                        Add Goal
                     </button>
                 </div>
             </div>
