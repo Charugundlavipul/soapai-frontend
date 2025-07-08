@@ -14,6 +14,8 @@ export default function NewClientModal({ open, onClose, onCreated }) {
     goals: [], // array of goal *names*
   })
   const [file, setFile] = useState(null)
+  const [isDragOver, setIsDragOver] = useState(false)
+  const fileInputRef = useRef(null)
 
   /* ─── goal bank organized by categories ─── */
   const [goalCategories, setGoalCategories] = useState([]) // [{ name, description, goals: [...] }]
@@ -147,12 +149,84 @@ export default function NewClientModal({ open, onClose, onCreated }) {
                   {/* Avatar Upload */}
                   <div className="space-y-2">
                     <label className="text-sm font-medium text-gray-900">Profile Picture</label>
-                    <input
-                        type="file"
-                        accept="image/*"
-                        onChange={(e) => setFile(e.target.files[0])}
-                        className="w-full border border-gray-200 rounded-xl p-4 text-center text-sm cursor-pointer hover:border-gray-300 transition-colors"
-                    />
+                    <div
+                        className={`relative border-2 border-dashed rounded-xl p-6 text-center transition-colors cursor-pointer
+      ${
+                            isDragOver
+                                ? "border-primary bg-primary/5"
+                                : file
+                                    ? "border-green-300 bg-green-50"
+                                    : "border-gray-300 hover:border-gray-400 hover:bg-gray-50"
+                        }`}
+                        onDragOver={(e) => {
+                          e.preventDefault()
+                          setIsDragOver(true)
+                        }}
+                        onDragLeave={(e) => {
+                          e.preventDefault()
+                          setIsDragOver(false)
+                        }}
+                        onDrop={(e) => {
+                          e.preventDefault()
+                          setIsDragOver(false)
+                          const droppedFile = e.dataTransfer.files[0]
+                          if (droppedFile && droppedFile.type.startsWith("image/")) {
+                            setFile(droppedFile)
+                          }
+                        }}
+                        onClick={() => fileInputRef.current?.click()}
+                    >
+                      <input
+                          ref={fileInputRef}
+                          type="file"
+                          accept="image/*"
+                          onChange={(e) => setFile(e.target.files[0])}
+                          className="hidden"
+                      />
+
+                      {file ? (
+                          <div className="space-y-3">
+                            <div className="w-16 h-16 mx-auto bg-green-100 rounded-full flex items-center justify-center">
+                              <svg className="w-8 h-8 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                              </svg>
+                            </div>
+                            <div>
+                              <p className="text-sm font-medium text-green-700">{file.name}</p>
+                              <p className="text-xs text-green-600">{(file.size / 1024 / 1024).toFixed(2)} MB</p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  setFile(null)
+                                }}
+                                className="text-xs text-red-600 hover:text-red-800 font-medium"
+                            >
+                              Remove file
+                            </button>
+                          </div>
+                      ) : (
+                          <div className="space-y-3">
+                            <div className="w-16 h-16 mx-auto bg-gray-100 rounded-full flex items-center justify-center">
+                              <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    strokeWidth={2}
+                                    d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
+                                />
+                              </svg>
+                            </div>
+                            <div>
+                              <p className="text-sm font-medium text-gray-700">
+                                {isDragOver ? "Drop your image here" : "Drop an image here, or click to browse"}
+                              </p>
+                              <p className="text-xs text-gray-500 mt-1">PNG, JPG, GIF up to 10MB</p>
+                            </div>
+                          </div>
+                      )}
+                    </div>
                   </div>
 
                   {/* Name and Age - Side by side */}
