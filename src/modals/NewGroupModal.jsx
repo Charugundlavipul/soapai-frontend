@@ -183,7 +183,7 @@ export default function NewGroupModal({ open, onClose, onCreated }) {
         <div ref={modalRef} className="bg-white rounded-2xl shadow-xl w-full max-w-4xl max-h-[90vh] overflow-hidden">
           {/* Header */}
           <div className="flex items-center justify-between p-6 border-b border-gray-200">
-            <h2 className="text-xl font-semibold text-gray-900">Create Group Session</h2>
+            <h2 className="text-xl font-semibold text-primary">Create Group Session</h2>
             <button onClick={onClose} className="p-1 hover:bg-gray-100 rounded-full transition-colors">
               <X className="h-5 w-5 text-gray-500" />
             </button>
