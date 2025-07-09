@@ -29,11 +29,11 @@ export default function ClientCard({ c, onEdit, onDelete }) {
       {open && (
         <div className="mt-3 space-y-2 pl-13">
           <p className="text-xs text-gray-400">Last Visit : 17th July</p>
-          {c.group && (
+          {/* {c.group && (
             <p>
               <span className="font-medium">Group :</span> {c.group.name}
             </p>
-          )}
+          )} */}
 
           <div className="flex gap-3 pt-2">
             <button

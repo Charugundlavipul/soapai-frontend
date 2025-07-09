@@ -171,16 +171,16 @@ function CategoryTile({ cat, onAddGoal, onEdit, onDeleteCat, onDeleteGoal }) {
             <PencilSquareIcon
                 title="Edit category"
                 onClick={() => { onEdit(); }}
-                className="h-6 w-6 text-primary cursor-pointer"
+                className="h-5 w-5 text-primary cursor-pointer"
             />
             <TrashIcon
                 title="Delete category"
                 onClick={() => { onDeleteCat(); }}
-                className="h-6 w-6 text-red-500 cursor-pointer"
+                className="h-5 w-5 text-red-500 cursor-pointer"
             />
             <ChevronDownIcon
                 onClick={() => setOpen(o => !o)}
-                className={`h-6 w-6 transition ${open ? "rotate-180" : ""} cursor-pointer hover:text-blue-500 hover:scale-110`}
+                className={`h-5 w-5 transition ${open ? "rotate-180" : ""} cursor-pointer hover:text-blue-500 hover:scale-110`}
             />
 
           </div>
@@ -204,7 +204,7 @@ function CategoryTile({ cat, onAddGoal, onEdit, onDeleteCat, onDeleteGoal }) {
                     cat.goals.map(g => (
                         <li
                             key={g._id || g.name}
-                            className="bg-gray-50 rounded-md px-3 py-2 flex justify-between"
+                            className="bg-[#FAF8FF] rounded-md px-3 py-2 flex justify-between"
                         >
                           <div className="text-sm">
                             <p className="font-medium">{g.name}</p>
@@ -217,7 +217,7 @@ function CategoryTile({ cat, onAddGoal, onEdit, onDeleteCat, onDeleteGoal }) {
                           <TrashIcon
                               title="Delete goal"
                               onClick={() => { onDeleteGoal(g); }}   /* wrapped – no Promise returned */
-                              className="h-6 w-6 text-gray-400 hover:text-red-500 cursor-pointer"
+                              className="h-4 w-4 text-red-500 hover:text-red-500 cursor-pointer"
                           />
                         </li>
                     ))
