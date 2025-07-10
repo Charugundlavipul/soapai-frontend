@@ -1,10 +1,12 @@
 "use client"
 
 /* ──────────────────────────────────────────────────────────
-   ActivityGenerator.jsx  (DROP-IN REPLACEMENT)
-   - Updated to use MultiSelectDropdown instead of DropdownChips
+   ActivityGenerator.jsx  (UPDATED VERSION)
+   - Uses MultiSelectDropdown and SingleSelectDropdown
+   - Added SavingToast for notifications
+   - Icon buttons for edit/delete with confirmation dialog
+   - Enhanced styling to match design system
    - All API functionality preserved
-   - Enhanced UI with new select components
    ────────────────────────────────────────────────────────── */
 
 import { useState, useEffect, useRef } from "react"
@@ -16,8 +18,9 @@ import qs from "qs"
 import AccordionRow from "./AccordionRow"
 import MultiSelectDropdown from "./multi-select-dropdown"
 import SingleSelectDropdown from "./single-select-dropdown"
+import SavingToast from "../components/savingToast"
 import axios from "axios"
-import { Users, Target, Clock } from "lucide-react"
+import { Users, Target, Clock, Edit, Trash2, AlertTriangle } from "lucide-react"
 
 const api = axios.create({
   baseURL: "http://localhost:4000/api",
@@ -64,6 +67,9 @@ export default function ActivityGenerator({
   const [busy, setBusy] = useState(false)
   const editorRef = useRef(null)
 
+  /* toast state */
+  const [toast, setToast] = useState({ show: false, message: "", type: "success" })
+
   /* whenever caller passes new initialActivities (route reload) */
   useEffect(() => setActs(initialActivities), [initialActivities])
 
@@ -82,13 +88,22 @@ export default function ActivityGenerator({
     }
   }, [planMD])
 
+  /* toast helpers */
+  const showToast = (message, type = "success") => {
+    setToast({ show: true, message, type })
+  }
+
+  const hideToast = () => {
+    setToast({ show: false, message: "", type: "success" })
+  }
+
   /* ============================================================
      0️⃣  DRAFT   (/activity-draft)                              */
   /* ============================================================ */
   async function generateDraft() {
     if (busy) return
     if (!members.length || !goals.length) {
-      alert("Pick at least one member and one goal first.")
+      showToast("Pick at least one member and one goal first.", "error")
       return
     }
 
@@ -103,7 +118,7 @@ export default function ActivityGenerator({
       setDraft(data)
       setMats(data.materials)
     } catch (err) {
-      alert(err.response?.data?.message || "Draft generation failed.")
+      showToast(err.response?.data?.message || "Draft generation failed.", "error")
     } finally {
       setBusy(false)
     }
@@ -115,7 +130,7 @@ export default function ActivityGenerator({
   async function previewPlan() {
     if (busy || !draft) return
     if (!draftMats.length) {
-      alert("Select at least one material.")
+      showToast("Select at least one material.", "error")
       return
     }
 
@@ -144,7 +159,7 @@ export default function ActivityGenerator({
       setIdea("")
     } catch (err) {
       console.error(err)
-      alert(err.response?.data?.message || "Failed to get preview.")
+      showToast(err.response?.data?.message || "Failed to get preview.", "error")
     } finally {
       setBusy(false)
     }
@@ -197,10 +212,10 @@ export default function ActivityGenerator({
       /* clear preview state (ready for next activity) */
       setPlan("")
       setPend(null)
-      alert("Saved!")
+      showToast("Activity saved successfully!")
     } catch (err) {
       console.error(err)
-      alert(err.response?.data?.message || "Save failed – see console.")
+      showToast(err.response?.data?.message || "Save failed – see console.", "error")
     } finally {
       setBusy(false)
     }
@@ -251,18 +266,28 @@ export default function ActivityGenerator({
   /* ============================================================ */
   return (
       <div className="space-y-6">
+        {/* Toast Notifications */}
+        <SavingToast show={toast.show} message={toast.message} type={toast.type} onClose={hideToast} />
+
         {/* ─── Existing activities ─── */}
         {activities.length > 0 && (
             <>
-              <h4 className="text-xl font-semibold">Generated Activities</h4>
+              <h4 className="text-xl font-semibold text-gray-800">Generated Activities</h4>
               {activities.map((a) => (
                   <ActivityAccordion
                       key={a._id}
                       act={a}
                       appointmentId={appointmentId}
                       memberOptions={patients.map((p) => ({ id: p._id, label: p.name }))}
-                      onUpdated={(u) => updateActs((acts) => acts.map((x) => (x._id === u._id ? u : x)))}
-                      onDeleted={(id) => updateActs((acts) => acts.filter((x) => x._id !== id))}
+                      onUpdated={(u) => {
+                        updateActs((acts) => acts.map((x) => (x._id === u._id ? u : x)))
+                        showToast("Activity updated successfully!")
+                      }}
+                      onDeleted={(id) => {
+                        updateActs((acts) => acts.filter((x) => x._id !== id))
+                        showToast("Activity deleted successfully!")
+                      }}
+                      showToast={showToast}
                   />
               ))}
               <hr className="border-gray-200" />
@@ -270,7 +295,7 @@ export default function ActivityGenerator({
         )}
 
         {/* ─── Generator form ─── */}
-        <h4 className="text-xl font-semibold">Activity Generator</h4>
+        <h4 className="text-xl font-semibold text-gray-800">Activity Generator</h4>
 
         {mode === "group" && (
             <MultiSelectDropdown
@@ -314,13 +339,16 @@ export default function ActivityGenerator({
         />
 
         {!planMD && (
-            <textarea
-                rows={3}
-                value={idea}
-                onChange={(e) => setIdea(e.target.value)}
-                placeholder="Therapist idea (optional)…"
-                className="w-full border rounded-md px-3 py-2 shadow-sm text-sm focus:ring-primary"
-            />
+            <div className="space-y-2">
+              <label className="block text-sm font-medium text-gray-700">Therapist Idea (Optional)</label>
+              <textarea
+                  rows={3}
+                  value={idea}
+                  onChange={(e) => setIdea(e.target.value)}
+                  placeholder="Add any specific ideas or requirements for the activity..."
+                  className="w-full bg-gray-50 rounded-xl border border-gray-200 px-4 py-3 text-base focus:ring-2 focus:ring-[#3D298D]/20 focus:border-[#3D298D] transition-colors resize-none"
+              />
+            </div>
         )}
 
         {/* ─── Buttons ─── */}
@@ -328,7 +356,7 @@ export default function ActivityGenerator({
             <button
                 onClick={generateDraft}
                 disabled={busy}
-                className="bg-primary text-white rounded-full px-6 py-2 hover:bg-primary/90 disabled:opacity-60"
+                className="bg-[#3D298D] text-white rounded-xl px-6 py-3 font-medium hover:bg-[#3D298D]/90 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
             >
               {busy ? "Generating…" : "Generate Activity"}
             </button>
@@ -337,37 +365,42 @@ export default function ActivityGenerator({
         {/* --- Draft card & preview button --- */}
         {draft && !planMD && (
             <>
-              <div className="bg-white rounded-md p-4 space-y-4">
-                <p className="text-sm">
-                  <strong>Name:</strong> {draft.name}
-                </p>
-                <p className="text-sm whitespace-pre-wrap">
-                  <strong>Description:</strong> {draft.description}
-                </p>
+              <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-4">
                 <div>
-                  <p className="text-sm font-medium mb-1">Materials</p>
-                  <ul className="space-y-2">
+                  <h5 className="text-lg font-semibold text-gray-800 mb-2">Activity Draft</h5>
+                  <p className="text-sm text-gray-600">
+                    <strong>Name:</strong> {draft.name}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-sm text-gray-600 whitespace-pre-wrap">
+                    <strong>Description:</strong> {draft.description}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-gray-700 mb-3">Select Materials</p>
+                  <div className="space-y-2 max-h-48 overflow-y-auto">
                     {draft.materials.map((m) => (
-                        <li key={m} className="flex items-center gap-2">
+                        <label key={m} className="flex items-center gap-3 p-2 rounded-lg hover:bg-gray-50 cursor-pointer">
                           <input
                               type="checkbox"
                               checked={draftMats.includes(m)}
                               onChange={() =>
                                   setMats((prev) => (prev.includes(m) ? prev.filter((x) => x !== m) : [...prev, m]))
                               }
-                              className="h-4 w-4 text-primary border rounded"
+                              className="h-4 w-4 text-[#3D298D] border-gray-300 rounded focus:ring-[#3D298D]/20"
                           />
-                          <span className="text-sm">{m}</span>
-                        </li>
+                          <span className="text-sm text-gray-700">{m}</span>
+                        </label>
                     ))}
-                  </ul>
+                  </div>
                 </div>
               </div>
 
               <button
                   onClick={previewPlan}
                   disabled={!draftMats.length || busy}
-                  className="bg-primary text-white rounded-full px-6 py-2 hover:bg-primary/90 disabled:opacity-60"
+                  className="bg-[#3D298D] text-white rounded-xl px-6 py-3 font-medium hover:bg-[#3D298D]/90 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
               >
                 {busy ? "Creating…" : "Generate With Selected Materials"}
               </button>
@@ -377,20 +410,21 @@ export default function ActivityGenerator({
         {/* --- Preview & confirm --- */}
         {planMD && (
             <div className="space-y-4">
-              <h5 className="text-lg font-semibold">Generated Plan</h5>
-              <div
-                  ref={editorRef}
-                  contentEditable
-                  suppressContentEditableWarning
-                  /* `prose` makes headings / lists look nice */
-                  className="prose max-w-none min-h-[200px] border rounded-md p-3 bg-white text-sm overflow-auto"
-                  dangerouslySetInnerHTML={{ __html: htmlDoc }}
-                  onInput={(e) => setHtml(e.currentTarget.innerHTML)}
-              />
+              <h5 className="text-lg font-semibold text-gray-800">Generated Plan</h5>
+              <div className="bg-white rounded-xl border border-gray-200 p-4">
+                <div
+                    ref={editorRef}
+                    contentEditable
+                    suppressContentEditableWarning
+                    className="prose max-w-none min-h-[200px] focus:outline-none text-sm"
+                    dangerouslySetInnerHTML={{ __html: htmlDoc }}
+                    onInput={(e) => setHtml(e.currentTarget.innerHTML)}
+                />
+              </div>
               <button
                   onClick={confirmAndSave}
                   disabled={busy}
-                  className="bg-primary text-white px-6 py-2 rounded-full hover:bg-primary/90 disabled:opacity-60"
+                  className="bg-[#3D298D] text-white px-6 py-3 rounded-xl font-medium hover:bg-[#3D298D]/90 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
               >
                 {busy ? "Saving…" : "Confirm & Save"}
               </button>
@@ -403,9 +437,10 @@ export default function ActivityGenerator({
 /* ===================================================================== */
 /*                    Accordion + editable modal                          */
 /* ===================================================================== */
-function ActivityAccordion({ act, appointmentId, memberOptions, onUpdated, onDeleted }) {
+function ActivityAccordion({ act, appointmentId, memberOptions, onUpdated, onDeleted, showToast }) {
   const [open, setOpen] = useState(false)
   const [editing, setEditing] = useState(false)
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [busy, setBusy] = useState(false)
 
   /* form state held only inside modal */
@@ -427,8 +462,8 @@ function ActivityAccordion({ act, appointmentId, memberOptions, onUpdated, onDel
       })
       onUpdated(data)
       setEditing(false)
-    } catch {
-      alert("Edit failed")
+    } catch (err) {
+      showToast("Edit failed", "error")
     } finally {
       setBusy(false)
     }
@@ -436,13 +471,13 @@ function ActivityAccordion({ act, appointmentId, memberOptions, onUpdated, onDel
 
   /* ------------ delete ----------- */
   const del = async () => {
-    if (!window.confirm("Delete this activity?")) return
     try {
       setBusy(true)
       await api.delete(`/appointments/${appointmentId}/activities/${act._id}`)
       onDeleted(act._id)
-    } catch {
-      alert("Delete failed")
+      setShowDeleteConfirm(false)
+    } catch (err) {
+      showToast("Delete failed", "error")
     } finally {
       setBusy(false)
     }
@@ -454,52 +489,65 @@ function ActivityAccordion({ act, appointmentId, memberOptions, onUpdated, onDel
             open={open}
             onToggle={() => setOpen((o) => !o)}
             header={
-              <div className="flex items-center gap-2">
-                <span className="font-medium">{act.name}</span>
-                <button
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      setEditing(true)
-                    }}
-                    className="text-xs underline"
-                >
-                  Edit
-                </button>
-                <button
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      del()
-                    }}
-                    className="text-xs text-red-600 underline"
-                >
-                  Delete
-                </button>
+              <div className="flex items-center justify-between w-full">
+                <span className="font-medium text-gray-800">{act.name}</span>
+                <div className="flex items-center gap-2">
+                  <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setEditing(true)
+                      }}
+                      className="p-2 text-gray-500 hover:text-[#3D298D] hover:bg-gray-100 rounded-lg transition-colors"
+                      title="Edit activity"
+                  >
+                    <Edit className="h-4 w-4" />
+                  </button>
+                  <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setShowDeleteConfirm(true)
+                      }}
+                      className="p-2 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                      title="Delete activity"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
               </div>
             }
         >
-          <div className="prose text-sm" dangerouslySetInnerHTML={{ __html: marked.parse(act.description || "") }} />
+          <div
+              className="prose prose-sm max-w-none text-gray-600"
+              dangerouslySetInnerHTML={{ __html: marked.parse(act.description || "") }}
+          />
         </AccordionRow>
 
         {/* ---------- EDIT MODAL ---------- */}
         {editing && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
-              <div className="bg-white rounded-xl p-6 w-[38rem] max-w-full space-y-5">
-                <h3 className="text-lg font-semibold">Edit Activity</h3>
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4">
+              <div className="bg-white rounded-xl p-6 w-full max-w-2xl space-y-5">
+                <h3 className="text-lg font-semibold text-gray-800">Edit Activity</h3>
 
-                <input
-                    value={form.name}
-                    onChange={(e) => patch({ name: e.target.value })}
-                    className="w-full border rounded px-3 py-2"
-                    placeholder="Activity name"
-                />
+                <div className="space-y-2">
+                  <label className="block text-sm font-medium text-gray-700">Activity Name</label>
+                  <input
+                      value={form.name}
+                      onChange={(e) => patch({ name: e.target.value })}
+                      className="w-full bg-gray-50 rounded-xl border border-gray-200 px-4 py-3 text-base focus:ring-2 focus:ring-[#3D298D]/20 focus:border-[#3D298D] transition-colors"
+                      placeholder="Activity name"
+                  />
+                </div>
 
-                <textarea
-                    rows={6}
-                    value={form.description}
-                    onChange={(e) => patch({ description: e.target.value })}
-                    className="w-full border rounded px-3 py-2"
-                    placeholder="Activity description"
-                />
+                <div className="space-y-2">
+                  <label className="block text-sm font-medium text-gray-700">Description</label>
+                  <textarea
+                      rows={6}
+                      value={form.description}
+                      onChange={(e) => patch({ description: e.target.value })}
+                      className="w-full bg-gray-50 rounded-xl border border-gray-200 px-4 py-3 text-base focus:ring-2 focus:ring-[#3D298D]/20 focus:border-[#3D298D] transition-colors resize-none"
+                      placeholder="Activity description"
+                  />
+                </div>
 
                 {memberOptions.length > 1 && (
                     <MultiSelectDropdown
@@ -515,16 +563,51 @@ function ActivityAccordion({ act, appointmentId, memberOptions, onUpdated, onDel
                     />
                 )}
 
-                <div className="flex justify-end gap-3">
-                  <button onClick={() => setEditing(false)} className="px-4 py-2 rounded border hover:bg-gray-50">
+                <div className="flex justify-end gap-3 pt-4">
+                  <button
+                      onClick={() => setEditing(false)}
+                      className="px-4 py-2 rounded-xl border border-gray-200 text-gray-700 hover:bg-gray-50 transition-colors"
+                  >
                     Cancel
                   </button>
                   <button
                       onClick={save}
                       disabled={busy}
-                      className="bg-primary text-white px-4 py-2 rounded disabled:opacity-60 hover:bg-primary/90"
+                      className="bg-[#3D298D] text-white px-4 py-2 rounded-xl disabled:opacity-60 hover:bg-[#3D298D]/90 transition-colors"
                   >
                     {busy ? "Saving…" : "Save"}
+                  </button>
+                </div>
+              </div>
+            </div>
+        )}
+
+        {/* ---------- DELETE CONFIRMATION MODAL ---------- */}
+        {showDeleteConfirm && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4">
+              <div className="bg-white rounded-xl p-6 w-full max-w-md space-y-4">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-red-100 rounded-full">
+                    <AlertTriangle className="h-5 w-5 text-red-600" />
+                  </div>
+                  <h3 className="text-lg font-semibold text-gray-800">Delete Activity</h3>
+                </div>
+
+                <p className="text-gray-600">Are you sure you want to delete "{act.name}"? This action cannot be undone.</p>
+
+                <div className="flex justify-end gap-3 pt-4">
+                  <button
+                      onClick={() => setShowDeleteConfirm(false)}
+                      className="px-4 py-2 rounded-xl border border-gray-200 text-gray-700 hover:bg-gray-50 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                      onClick={del}
+                      disabled={busy}
+                      className="bg-red-600 text-white px-4 py-2 rounded-xl disabled:opacity-60 hover:bg-red-700 transition-colors"
+                  >
+                    {busy ? "Deleting…" : "Delete"}
                   </button>
                 </div>
               </div>
@@ -540,6 +623,7 @@ ActivityAccordion.propTypes = {
   memberOptions: PropTypes.array.isRequired,
   onUpdated: PropTypes.func.isRequired,
   onDeleted: PropTypes.func.isRequired,
+  showToast: PropTypes.func.isRequired,
 }
 
 ActivityGenerator.propTypes = {

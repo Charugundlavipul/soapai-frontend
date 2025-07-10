@@ -7,6 +7,7 @@ import Navbar from "../components/Navbar"
 import EditGoalsModal from "../modals/EditGoalsModal"
 import MultiSelectDropdown from "../components/multi-select-dropdown"
 import SingleSelectDropdown from "../components/single-select-dropdown"
+import SavingToast from "../components/savingToast"
 import axios from "axios"
 import { ChevronLeft, Zap, ClipboardList, Sparkle, Target, Clock } from "lucide-react"
 import { marked } from "marked"
@@ -45,6 +46,13 @@ export default function SessionPatientView() {
   const [activeTab, setActiveTab] = useState("visitNotes")
   const [showGoals, setShowGoals] = useState(false)
 
+  // Toast state
+  const [toast, setToast] = useState({
+    show: false,
+    message: "",
+    type: "success",
+  })
+
   // Activity generator
   const [selectedGoals, setSelectedGoals] = useState([])
   const [duration, setDuration] = useState("30 Minutes")
@@ -52,6 +60,15 @@ export default function SessionPatientView() {
   const [editorHtml, setEditorHtml] = useState("")
   const [busy, setBusy] = useState(false)
   const editorRef = useRef(null)
+
+  // Toast helper functions
+  const showToast = (message, type = "success") => {
+    setToast({ show: true, message, type })
+  }
+
+  const hideToast = () => {
+    setToast((prev) => ({ ...prev, show: false }))
+  }
 
   useEffect(() => {
     ;(async () => {
@@ -121,7 +138,7 @@ export default function SessionPatientView() {
   /* Generate a new plan via API */
   const generateActivity = async () => {
     if (!selectedGoals.length) {
-      alert("Select at least one goal.")
+      showToast("Please select at least one goal.", "error")
       return
     }
     const notes = insights.map((i) => `• ${i.time || ""} ${i.text}`).join("\n")
@@ -156,9 +173,10 @@ export default function SessionPatientView() {
         },
       ]
       replaceActivities(newActs)
+      showToast("Activity generated successfully!", "success")
     } catch (e) {
       console.error(e)
-      alert("Failed to generate activity")
+      showToast("Failed to generate activity. Please try again.", "error")
     } finally {
       setBusy(false)
     }
@@ -175,9 +193,10 @@ export default function SessionPatientView() {
       const h = (canvas.height * w) / canvas.width
       pdf.addImage(img, "PNG", 0, 0, w, h)
       pdf.save("plan.pdf")
+      showToast("PDF downloaded successfully!", "success")
     } catch (e) {
       console.error(e)
-      alert("PDF export failed")
+      showToast("PDF export failed. Please try again.", "error")
     }
   }
 
@@ -185,14 +204,23 @@ export default function SessionPatientView() {
       <div className="min-h-screen flex flex-col bg-white">
         <Navbar />
 
+        {/* Toast Component */}
+        <SavingToast show={toast.show} message={toast.message} type={toast.type} onClose={hideToast} />
+
         <EditGoalsModal
             open={showGoals}
             onClose={() => setShowGoals(false)}
             currentGoals={client.goals}
             onSave={async (goals) => {
-              const { data } = await api.patch(`/clients/${client._id}/goals`, { goals })
-              setClient((c) => ({ ...c, goals: data.goals }))
-              setShowGoals(false)
+              try {
+                const { data } = await api.patch(`/clients/${client._id}/goals`, { goals })
+                setClient((c) => ({ ...c, goals: data.goals }))
+                setShowGoals(false)
+                showToast("Goals updated successfully!", "success")
+              } catch (e) {
+                console.error(e)
+                showToast("Failed to update goals. Please try again.", "error")
+              }
             }}
         />
 
