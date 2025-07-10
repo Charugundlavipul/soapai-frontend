@@ -15,14 +15,10 @@ import Navbar from "../components/Navbar";
 import EditClientProfileModal from "../modals/EditClientProfileModal";
 import EditGoalsModal from "../modals/EditGoalsModal";
 import SavingToast from "../components/savingToast";
+import CustomDatePicker from "../components/CustomDatePicker";
 
-import {
-  ChevronLeft,
-  Pencil,
-  CalendarDays,
-  BookOpen,
-  BarChart3,
-} from "lucide-react";
+import { ChevronLeft, Pencil, CalendarDays, BookOpen, LineChartIcon as ChartLine, ChevronRight, Download } from 'lucide-react';
+
 
 import {
   ResponsiveContainer,
@@ -387,7 +383,7 @@ function RightTabs({
   const tabs = [
     { id: "visitHistory", label: "Session History", icon: CalendarDays },
     { id: "materials", label: "View Activities", icon: BookOpen },
-    { id: "progress", label: "Progress Tracker", icon: BarChart3 },
+    { id: "progress", label: "Progress Tracker", icon: ChartLine },
   ];
 
   return (
@@ -427,44 +423,77 @@ function RightTabs({
         </div>
       )}
 
-      {/* materials */}
-      {activeTab === "materials" && (
-        <div className="bg-[#F5F4FB] rounded-2xl p-8 shadow-sm space-y-4">
-          <h4 className="text-xl font-semibold text-gray-800">Activities</h4>
+        {/* materials */}
+        {activeTab === "materials" && (
+            <div className="bg-[#F5F4FB] rounded-2xl p-8 shadow-sm space-y-4">
+                <h4 className="text-xl font-semibold text-gray-800">Activities</h4>
 
-          {Object.keys(groupedMaterials).length === 0 && (
-            <p className="text-sm text-gray-500">No materials uploaded.</p>
-          )}
+                {Object.keys(groupedMaterials).length === 0 && (
+                    <div className="text-center py-8 text-gray-400 border-2 border-dashed border-gray-200 rounded-xl bg-white">
+                        <BookOpen className="w-12 h-12 mx-auto mb-3 text-gray-300" />
+                        <p className="text-sm">No materials uploaded yet</p>
+                        <p className="text-xs mt-1">Activities will appear here when added</p>
+                    </div>
+                )}
 
-          {Object.entries(groupedMaterials)
-            .sort((a, b) => new Date(b[0]) - new Date(a[0]))
-            .map(([dateLabel, files]) => (
-              <details key={dateLabel} className="bg-white rounded-lg shadow-sm">
-                <summary className="px-5 py-4 cursor-pointer font-medium text-primary list-none flex justify-between items-center">
-                  <span>{dateLabel}</span>
-                  <span className="text-primary">▾</span>
-                </summary>
+                {Object.entries(groupedMaterials)
+                    .sort((a, b) => new Date(b[0]) - new Date(a[0]))
+                    .map(([dateLabel, files]) => (
+                        <details key={dateLabel} className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                            <summary className="px-6 py-4 cursor-pointer font-medium text-primary list-none flex justify-between items-center hover:bg-gray-50 transition-colors">
+                                <div className="flex items-center gap-3">
+                                    <CalendarDays className="w-4 h-4 text-primary" />
+                                    <span>{dateLabel}</span>
+                                    <span className="text-xs bg-primary/10 text-primary px-2 py-1 rounded-full">
+                      {files.length} file{files.length !== 1 ? 's' : ''}
+                    </span>
+                                </div>
+                                <ChevronRight className="w-4 h-4 text-primary transition-transform duration-200 [details[open]>&]:rotate-90" />
+                            </summary>
 
-                <ul className="px-5 py-3 space-y-2 text-sm">
-                  {files.map((f, idx) => (
-                    <li key={idx} className="flex items-center justify-between">
-                      <span className="break-all">{f.filename}</span>
-                      <a
-                        href={f.fileUrl}
-                        download
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="bg-primary text-white px-3 py-1 rounded-full text-xs hover:bg-primary/90"
-                      >
-                        Download
-                      </a>
-                    </li>
-                  ))}
-                </ul>
-              </details>
-            ))}
-        </div>
-      )}
+                            <div className="px-6 py-4 border-t border-gray-100 bg-gray-50/30">
+                                <ul className="space-y-3">
+                                    {files.map((f, idx) => (
+                                        <li key={idx} className="flex items-center justify-between p-3 bg-white rounded-lg border border-gray-100 hover:border-primary/20 transition-colors">
+                                            <div className="flex items-center gap-3 flex-1 min-w-0">
+                                                <div className="w-8 h-8 bg-primary/10 rounded-lg flex items-center justify-center flex-shrink-0">
+                                                    <BookOpen className="w-4 h-4 text-primary" />
+                                                </div>
+                                                <span className="text-sm text-gray-700 truncate" title={f.filename}>
+                            {f.filename}
+                          </span>
+                                            </div>
+                                            <a
+                                                href={f.fileUrl}
+                                                download
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="flex items-center gap-2 bg-primary text-white px-4 py-2 rounded-lg text-xs font-medium hover:bg-primary/90 transition-colors ml-3 flex-shrink-0"
+                                                title="Download file"
+                                            >
+                                                <svg
+                                                    className="w-4 h-4"
+                                                    fill="none"
+                                                    stroke="currentColor"
+                                                    viewBox="0 0 24 24"
+                                                >
+                                                    <path
+                                                        strokeLinecap="round"
+                                                        strokeLinejoin="round"
+                                                        strokeWidth={2}
+                                                        d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                                                    />
+                                                </svg>
+                                                <span className="hidden sm:inline">Download</span>
+                                            </a>
+                                        </li>
+                                    ))}
+                                </ul>
+                            </div>
+                        </details>
+                    ))}
+            </div>
+        )}
 
       {/* progress tracker */}
       {activeTab === "progress" && (
@@ -515,6 +544,15 @@ function ProgressTracker({
     goals.map((g) => rows.find((r) => r.name === g) || makeRow(g))
   );
   const [open, setOpen] = useState(new Set());
+
+    const [datePickerStates, setDatePickerStates] = useState({});
+
+    const toggleDatePicker = (rowIndex, field) => {
+        setDatePickerStates((prev) => ({
+            ...prev,
+            [`${rowIndex}-${field}`]: !prev[`${rowIndex}-${field}`],
+        }));
+    };
 
   const setRow = (i, patch) =>
     setData((arr) => arr.map((r, k) => (k === i ? { ...r, ...patch } : r)));
@@ -647,49 +685,40 @@ function ProgressTracker({
             {open.has(i) && (
               <div className="px-6 py-5 border-t border-gray-100 bg-gray-50/50 space-y-6">
                 {/* dates on top */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-1.5">
-                    <label className="block text-sm font-semibold text-gray-700">
-                      Start&nbsp;Date
-                    </label>
-                    <input
-                      type="date"
-                      value={row.startDate.slice(0, 10)}
-                      onChange={(e) =>
-                        setRow(i, { startDate: e.target.value || row.startDate })
-                      }
-                      className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:border-primary focus:ring-primary bg-white"
-                    />
-                  </div>
+                  {/* dates on top */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <CustomDatePicker
+                          label="Start Date"
+                          value={row.startDate.slice(0, 10)}
+                          onChange={(date) => setRow(i, { startDate: date })}
+                          isOpen={datePickerStates[`${i}-start`] || false}
+                          onToggle={(open) => toggleDatePicker(i, "start")}
+                      />
 
-                  <div className="space-y-1.5">
-                    <label className="block text-sm font-semibold text-gray-700">
-                      Target&nbsp;Date
-                    </label>
-                    <input
-                      type="date"
-                      value={row.targetDate?.slice(0, 10) || ""}
-                      onChange={(e) =>
-                        setRow(i, { targetDate: e.target.value || null })
-                      }
-                      className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:border-primary focus:ring-primary bg-white"
-                    />
-                    <div className="flex gap-1 mt-1">
-                      {quick.map((q) => (
-                        <button
-                          key={q.lbl}
-                          type="button"
-                          onClick={() =>
-                            setRow(i, { targetDate: addMonths(row.startDate, q.m) })
-                          }
-                          className="text-xs px-2 py-1 bg-primary/10 text-primary rounded-md hover:bg-primary/20"
-                        >
-                          {q.lbl}
-                        </button>
-                      ))}
-                    </div>
+                      <div className="space-y-1.5">
+                          <CustomDatePicker
+                              label="Target Date"
+                              value={row.targetDate?.slice(0, 10) || ""}
+                              onChange={(date) => setRow(i, { targetDate: date || null })}
+                              isOpen={datePickerStates[`${i}-target`] || false}
+                              onToggle={(open) => toggleDatePicker(i, "target")}
+                          />
+                          <div className="flex gap-1 mt-1">
+                              {quick.map((q) => (
+                                  <button
+                                      key={q.lbl}
+                                      type="button"
+                                      onClick={() =>
+                                          setRow(i, { targetDate: addMonths(row.startDate, q.m) })
+                                      }
+                                      className="text-xs px-2 py-1 bg-primary/10 text-primary rounded-md hover:bg-primary/20"
+                                  >
+                                      {q.lbl}
+                                  </button>
+                              ))}
+                          </div>
+                      </div>
                   </div>
-                </div>
 
                 {/* progress stepper */}
                 <div className="flex items-center gap-2">
