@@ -1,458 +1,427 @@
 // src/pages/IndividualRecommendations.jsx
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef }        from "react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
-import axios from "axios";
-import Navbar from "../components/Navbar";
-import GoalPickerModal from "../modals/GoalPickerModal";
-import { ChevronLeft, ClipboardList, Zap, Sparkle } from "lucide-react";
-import { marked } from "marked";
-import jsPDF from "jspdf";
-import html2canvas from "html2canvas";
-import Avatar from "../components/Avatar";
-import ActivityGenerator from "../components/ActivityGenerator";
+import axios               from "axios";
+import Navbar              from "../components/Navbar";
+import GoalPickerModal     from "../modals/GoalPickerModal";
+import { ChevronLeft, ClipboardList, Zap, Sparkle,Sparkles } from "lucide-react";
+import Avatar              from "../components/Avatar";
+import ActivityGenerator   from "../components/ActivityGenerator";
+import VisitNoteEditor     from "../components/VisitNoteEditor";
 
+/* ───── axios helper ───── */
 const api = axios.create({
-  baseURL: "http://localhost:4000/api",
-  headers: { Authorization: `Bearer ${localStorage.getItem("jwt")}` },
+  baseURL : "http://localhost:4000/api",
+  headers : { Authorization: `Bearer ${localStorage.getItem("jwt")}` }
 });
 
-/* ───── Placeholders ───── */
-const PLACEHOLDER_VISIT_NOTE = `
-10:00-10:15 am: Expressive language drills; patient produced 8/10 target words without cues.
-10:15-10:30 am: Story retell activity; showed improved sentence structure.
-`.trim();
+function stgForAppt(patient, appointmentId) {
+  return (
+    patient.stgs?.find(s => String(s.appointment) === String(appointmentId))
+      ?.text ?? ""
+  );
+}
+
+/* ───── placeholders ───── */
+const PLACEHOLDER_VISIT_NOTE = `Patient struggled with Pronouncing words ending with /s and /es`.trim();
 
 const PLACEHOLDER_AI_INSIGHTS = [
-  {
-    time: "11:00–11:10",
-    text: "Patient identified rhymes 9/10 times.",
-    tag: "Phonological Awareness",
-    color: "bg-green-100 text-green-800",
-  },
-  {
-    time: "11:11–11:15",
-    text: "Average utterance length increased to 7 words.",
-    tag: "Fluency Improvement",
-    color: "bg-blue-100 text-blue-800",
-  },
+  { time:"11:00 - 11:10", text:"Patient identified rhymes 9/10 times.", tag:"Phonological Awareness", color:"bg-green-100 text-green-800" },
+  { time:"11:11 - 11:15", text:"Average utterance length increased to 7 words.", tag:"Fluency Improvement",  color:"bg-blue-100 text-blue-800" }
 ];
 
+/* ────────────────────────────────────────── */
 export default function IndividualRecommendations() {
-  const navigate = useNavigate();
-  const { id }   = useParams();
-  const location = useLocation();
+  /* routing setup */
+  const navigate          = useNavigate();
+  const { id }            = useParams();          // appointment id
+  const location          = useLocation();
+  const fromAppointment   = location.pathname.startsWith("/appointments/");
+  const appointmentId     = fromAppointment ? id : null;
 
-  /* ─── Route context ─── */
-  const fromAppointment = location.pathname.startsWith("/appointments/");
-  const appointmentId   = fromAppointment ? id : null;
-  const patientId       = !fromAppointment ? id : null;
+  /* state */
+  const [client   , setClient]   = useState(null);
+  const [loading  , setLoading]  = useState(true);
+  const [error    , setError]    = useState(false);
+  const [visitNote, setVisitNote]= useState(PLACEHOLDER_VISIT_NOTE);
 
-  /* ─── Video & goal state passed from SessionReview ─── */
-  const videoFromState  = location.state?.video || null;
-  const [video, setVideo] = useState(videoFromState);
+  /* activity / ui */
+  const [activities , setActivities]  = useState([]);
+  const [activeTab  , setActiveTab]   = useState("visitNotes");
+  const [showPicker , setShowPicker]  = useState(false);
+  const [selectedGoals, setSelectedGoals] = useState([]);
+  const [planMD, setPlanMD] = useState("");
+  const editorRef  = useRef(null);
+  const [busy, setBusy] = useState(false);
 
-  const initialGoals =
-    video?.goals?.map((g) => (typeof g === "string" ? g : g.name)) || [];
-  const [selectedGoals, setSelectedGoals] = useState(initialGoals);
+  /* appointment meta */
+  const [apptStart, setApptStart] = useState(null);
+  const stgText = client ? stgForAppt(client, appointmentId) : "";
+  
 
-  /* ─── Basic remote data ─── */
-  const [loading, setLoading]        = useState(true);
-  const [error,   setError]          = useState(false);
-  const [client,  setClient]         = useState(null);
-  const [recommendation, setRecommendation] = useState(null);
-  const [activities, setActivities] = useState([]); // for ActivityGenerator
-
-  /* ─── UI state ─── */
-  const [activeTab, setActiveTab]     = useState("visitNotes");
-  const [showPicker, setShowPicker]   = useState(false);
-  const [duration,   setDuration]     = useState("30 Minutes");
-  const [planMD,     setPlanMD]       = useState("");
-  const [editorHtml, setEditorHtml]   = useState("");
-  const [busy,       setBusy]         = useState(false);
-  const editorRef = useRef(null);
-  const [apptStart, setApptStart]     = useState(null);
-
-  /* ─── Fetch patient (and optional recommendation) ─── */
+  /* ──────────────────────────────────────────
+     1️⃣  Load patient + ensure placeholder visit
+  ────────────────────────────────────────── */
   useEffect(() => {
     (async () => {
       try {
-        let targetId = patientId;
-        if (fromAppointment) {
-          const { data: appt } = await api.get(`/appointments/${appointmentId}`);
-          if (!appt.patient) throw new Error("No patient linked");
-          targetId   = appt.patient._id;
-          setApptStart(appt.dateTimeStart);
-          setActivities(appt.activities || []);
-        }
-        const [pRes, recRes] = await Promise.all([
-          api.get(`/clients/${targetId}`),
-          fromAppointment
-            ? api
-                .get(`/appointments/${appointmentId}/recommendations`)
-                .catch(() => null)
-            : null,
-        ]);
+        /* 1. pull the appointment */
+        const { data: appt } = await api.get(`/appointments/${appointmentId}`);
+        if (!appt?.patient) throw new Error("No patient linked");
+        setApptStart(appt.dateTimeStart);
+        setActivities(appt.activities || []);
 
-        setClient({
-          ...pRes.data,
-          prevVisitNote: pRes.data.prevVisitNote || PLACEHOLDER_VISIT_NOTE,
-        });
-        setRecommendation(recRes?.data || null);
+        /* 2. upsert placeholder visit once */
+        await api.post(`/clients/${appt.patient._id}/visit`, {
+          visit: {
+            date       : appt.dateTimeStart,
+            appointment: appointmentId,
+            type       : "individual",
+            note       : PLACEHOLDER_VISIT_NOTE,
+            aiInsights : PLACEHOLDER_AI_INSIGHTS,
+            activities : []
+          }
+        }).catch(() => {});                    // ignore 409-ish duplicates
+
+        /* 3. fetch updated patient */
+        const { data: pat } = await api.get(`/clients/${appt.patient._id}`);
+        setClient(pat);
+
+        /* show existing note if present */
+        const row = pat.visitHistory.find(v => String(v.appointment) === appointmentId);
+        if (row?.note) setVisitNote(row.note);
+
+        /* init goals from video (if routed that way) */
+        const gInitial =
+          location.state?.video?.goals?.map(g => typeof g === "string" ? g : g.name) || [];
+        setSelectedGoals(gInitial);
+
         setLoading(false);
-      } catch (e) {
-        console.error(e);
+      } catch (err) {
+        console.error(err);
         setError(true);
         setLoading(false);
       }
     })();
-  }, [appointmentId, patientId, fromAppointment]);
+  }, [appointmentId, location.state]);
 
-  /* ─── Generate activity, push visitHistory, save PDF & materials ─── */
-const generateActivity = async () => {
-  if (!fromAppointment) {
-    alert("Must be in appointment context.");
-    return;
-  }
-  if (!selectedGoals.length) {
-    alert("Select at least one goal.");
-    return;
-  }
-
-  const notes = client.prevVisitNote;
-  let rawMd = "";
-  try {
-    setBusy(true);
-    const { data } = await api.post(
-      `/appointments/${appointmentId}/generate-activity`,
-      {
-        memberIds: [client._id],
-        goals: selectedGoals,
-        duration,
-        notes,
-      }
-    );
-    rawMd = data.plan.trim();
-    setPlanMD(rawMd);
-  } catch (e) {
-    alert(e.response?.data?.message || "Generation failed");
-    return;
-  } finally {
-    setBusy(false);
-  }
-
-  /* convert MD → HTML for editor */
-  const html = marked.parse(rawMd);
-  setEditorHtml(html);
-  if (editorRef.current) editorRef.current.innerHTML = html;
-
-  /* derive activity name from first non-blank line */
-  const actName =
-    rawMd.split("\n").find((l) => l.trim())?.replace(/^#+\s*/, "") ||
-    "Therapy Activity";
-
-  /* wait a tick so the editor renders, then export & save */
-  setTimeout(async () => {
+  /* ─── STG generator ─── */
+  async function generateStg() {
+    if (!client?._id) return;
     try {
-      
-      const canvas = await html2canvas(editorRef.current, { scale: 2 });
-      const img    = canvas.toDataURL("image/png");
-      const pdf    = new jsPDF({ unit: "pt", format: "a4" });
-      const w      = pdf.internal.pageSize.getWidth();
-      const h      = (canvas.height * w) / canvas.width;
-      pdf.addImage(img, "PNG", 0, 0, w, h);
-      const pdfBlob = pdf.output("blob");
-      pdf.save("activity_plan.pdf");
-
-      /* 2️⃣  push visitHistory */
-      const visit = {
-        date:        apptStart || new Date().toISOString(),
-        appointment: appointmentId,
-        type:        "individual",
-        note:        notes,
-        aiInsights:
-          recommendation?.individualInsights?.[0]?.insights?.length
-            ? recommendation.individualInsights[0].insights
-            : PLACEHOLDER_AI_INSIGHTS,
-        activities: [
-          {
-            name:            actName,
-            description:     rawMd,
-            evidence:        "AI plan covering multiple goals.",
-            associatedGoals: selectedGoals,
-            recommended:     true,
-          },
-        ],
-      };
-      await api.post(`/clients/${client._id}/visit`, { visit });
-
-      /* 3️⃣  update goal-progress */
-      await api.patch(`/clients/${client._id}/goal-progress/history`, {
-        goals: selectedGoals,
-        activityName: actName,
+      await api.post(`/clients/${client._id}/gen-stg`, {
+        appointmentId
       });
-
-      /* 4️⃣  upload the PDF as material */
-      const fd = new FormData();
-      fd.append("visitDate",   apptStart || new Date().toISOString());
-      fd.append("appointment", appointmentId);
-      fd.append(
-        "file",
-        new File([pdfBlob], `plan_${appointmentId}.pdf`, {
-          type: "application/pdf",
-        })
-      );
-      await api.post(`/clients/${client._id}/materials`, fd, {
-        headers: { "Content-Type": "multipart/form-data" },
-      });
-    } catch (err) {
-      console.error(err);
-      alert("Failed to save visit or materials");
+      const { data: fresh } = await api.get(`/clients/${client._id}`);
+      setClient(fresh);
+      alert("Short-term goal generated!");
+    } catch (e) {
+      alert(e.response?.data?.message || "Failed to generate ST Goal");
     }
-  }, 100);
-};
-
-/* ─── Quick standalone “export PDF” for manually-edited plan ─── */
-const downloadPdf = async () => {
-  if (!editorRef.current) return;
-  try {
-    const canvas  = await html2canvas(editorRef.current, { scale: 2 });
-    const imgData = canvas.toDataURL("image/png");
-    const pdf     = new jsPDF({ unit: "pt", format: "a4" });
-    const w       = pdf.internal.pageSize.getWidth();
-    const h       = (canvas.height * w) / canvas.width;
-    pdf.addImage(imgData, "PNG", 0, 0, w, h);
-    pdf.save("activity_plan.pdf");
-  } catch (err) {
-    console.error("PDF export error:", err);
-    alert("Failed to export PDF.");
   }
-};
 
-
-  /* ─── Guards ─── */
+  /* ╭────────────────────────────────────────╮
+     │   render guards                        │
+     ╰────────────────────────────────────────╯ */
   if (loading)
-    return (
-      <div className="min-h-screen flex flex-col bg-white">
-        <Navbar />
-        <div className="flex-1 flex items-center justify-center text-gray-500">
-          Loading…
-        </div>
-      </div>
-    );
+    return <Shell><p className="text-gray-500">Loading…</p></Shell>;
+
   if (error || !client)
-    return (
-      <div className="min-h-screen flex flex-col bg-white">
-        <Navbar />
-        <div className="flex-1 flex items-center justify-center text-red-600">
-          Failed to load patient.
-        </div>
-      </div>
-    );
+    return <Shell><p className="text-red-600">Failed to load patient.</p></Shell>;
 
-  /* ─── AI insights fallback ─── */
-  const aiInsights =
-    recommendation?.individualInsights?.[0]?.insights?.length
-      ? recommendation.individualInsights[0].insights
-      : PLACEHOLDER_AI_INSIGHTS;
+  const aiInsights = PLACEHOLDER_AI_INSIGHTS;   // simple placeholder only
 
-  /* ─── Render ─── */
+  /* ╭────────────────────────────────────────╮
+     │   UI                                  │
+     ╰────────────────────────────────────────╯ */
   return (
-    <div className="min-h-screen flex flex-col bg-white">
-      <Navbar />
-
-      {/* GoalPickerModal (video-level goals) */}
+    <Shell>
+      {/* Goal-picker */}
       <GoalPickerModal
         open={showPicker}
         onClose={() => setShowPicker(false)}
-        video={video}
-        onSaved={(updated) => {
-          setVideo(updated);
-          const names = updated.goals.map((g) =>
-            typeof g === "string" ? g : g.name
-          );
+        video={location.state?.video}
+        onSaved={v => {
+          const names = v.goals.map(g => typeof g === "string" ? g : g.name);
           setSelectedGoals(names);
         }}
       />
 
-      <main className="flex-1 p-6 max-w-7xl mx-auto space-y-6">
-        {/* Page header */}
-        <div className="flex items-center gap-3">
-          <button onClick={() => navigate(-1)}>
-            <ChevronLeft className="w-6 h-6 text-gray-600 hover:text-gray-800" />
-          </button>
-          <h2 className="text-2xl font-semibold text-gray-800">
-            Recommendations — {client.name}
-          </h2>
-        </div>
+      {/* Header */}
+      <div className="flex items-center gap-3 mb-6">
+        <button onClick={() => navigate(-1)}>
+          <ChevronLeft className="w-6 h-6 text-gray-600 hover:text-gray-800" />
+        </button>
+        <h2 className="text-2xl font-semibold text-gray-800">
+          Recommendations — {client.name}
+        </h2>
+      </div>
 
-        <div className="grid grid-cols-12 gap-6">
-          {/* ─── LEFT COLUMN ─── */}
-          {/* ─── LEFT COLUMN ─── */}
-<div className="col-span-4 bg-[#F9F9FD] rounded-2xl p-6 flex flex-col space-y-6">
-  {/* Header */}
-  <div className="flex items-center gap-4">
-    <Avatar
-      url={client.avatarUrl}
-      name={client.name}
-      className="w-20 h-20 rounded-full border-2 border-primary"
-    />
-    <div className="flex-1">
-      <h3 className="text-xl font-semibold text-gray-900">{client.name}</h3>
-      <p className="text-sm text-gray-500">Age: {client.age ?? "—"}</p>
-      <p className="text-sm text-gray-500">
-        Diagnosis:&nbsp;
-        {(client.pastHistory || []).join(", ") || "—"}
-      
-    </p>
-  </div>
-  </div>
+      <div className="grid grid-cols-12 gap-6">
+        {/* LEFT */}
+        <LeftPanel
+          client={client}
+          selectedGoals={selectedGoals}
+          onEditGoals={() => setShowPicker(true)}
+          onGenerateStg={generateStg}
+          stgText={stgText}  
+        />
 
- <div className="bg-white rounded-xl p-4 mt-6 space-y-4 shadow-sm flex-1">
-  <h4 className="text-lg font-medium text-gray-800">Client Goals</h4>
-  <div className="flex flex-wrap gap-2">
-    {(client.goals || []).length ? (
-      client.goals.map((g) => (
-        <span
-          key={g}
-          className="px-3 py-1 bg-primary/10 text-primary rounded-full text-xs"
-        >
-          {g}
-        </span>
-      ))
-    ) : (
-      <span className="text-xs italic text-gray-400">None yet</span>
-    )}
-  </div>
-</div>
+        {/* RIGHT */}
+        <RightPanel
+          activeTab={activeTab}
+          setActiveTab={setActiveTab}
+          aiInsights={aiInsights}
+          visitNote={visitNote}
+          setVisitNote={setVisitNote}
+          appointmentId={appointmentId}
+          client={client}
+          activities={activities}
+          setActivities={setActivities}
+          editorRef={editorRef}
+          planMD={planMD}
+          setPlanMD={setPlanMD}
+          busy={busy}
+          setBusy={setBusy}
+          selectedGoals={selectedGoals}
+          apptStart={apptStart}
+        />
+      </div>
+    </Shell>
+  );
+}
 
-  {/* Goals FOR THIS VIDEO */}
-  <div className="bg-white rounded-xl p-4 shadow-sm flex flex-col flex-1 space-y-4">
-    <h4 className="text-lg font-medium text-gray-800">Short Term Session Goals</h4>
-    <div className="flex flex-wrap gap-2">
-      {selectedGoals.length ? (
-        selectedGoals.map((g) => (
-          <span
-            key={g}
-            className="px-3 py-1 bg-primary/10 text-primary rounded-full text-xs"
+/* ───────────────── left panel ───────────────── */
+function LeftPanel({ client, selectedGoals, stgText, onEditGoals, onGenerateStg }) {
+  return (
+    <div className="col-span-4 bg-[#F9F9FD] rounded-2xl p-6 space-y-6">
+      {/* profile */}
+      <ProfileCard client={client} />
+
+      {/* long-term goals */}
+      {/* <GoalsCard title="All Long Term Goals" goals={client.goals} /> */}
+
+      {/* session goals */}
+      <GoalsCard
+        title="Goals for this Session"
+        goals={selectedGoals}
+        onEdit={onEditGoals}
+      />
+
+      {/* STG card */}
+      <div className="bg-white rounded-xl p-4 shadow-sm space-y-3">
+        <div className="flex justify-between items-center">
+          <h4 className="text-lg font-medium text-gray-800">AI Short-Term Goal</h4>
+          <button
+            onClick={onGenerateStg}
+            className="text-xs bg-primary text-white px-3 py-1 rounded-full hover:bg-primary/90"
           >
-            {g}
-          </span>
-        ))
-      ) : (
-        <span className="text-xs italic text-gray-400">None yet</span>
-      )}
-    </div>
-    <button
-      onClick={() => setShowPicker(true)}
-      className="mt-auto w-full py-2 bg-primary text-white text-sm font-medium rounded-lg hover:bg-primary/90"
-    >
-      Edit Goals
-    </button>
-  </div>
-
-  {/* Previous Visit Notes */}
-  <div className="bg-white rounded-xl p-4 shadow-sm">
-    <h4 className="text-lg font-medium text-gray-800">Previous Visit Notes</h4>
-    <div className="text-sm text-gray-700 mt-1 space-y-1 bg-white rounded-md p-3 border">
-      {client.prevVisitNote.split("\n").map((line, i) => (
-        <p key={i}>{line.replace(/^•\s*/, "• ")}</p>
-      ))}
-    </div>
-  </div>
-</div>
-
-
-          {/* ─── RIGHT COLUMN ─── */}
-          <div className="col-span-8 flex flex-col space-y-6">
-            {/* Tab bar */}
-            <div className="flex gap-4 bg-[#F5F4FB] rounded-2xl px-6 py-4 shadow-sm">
-              <TabBtn
-                id="visitNotes"
-                active={activeTab}
-                setActive={setActiveTab}
-                Icon={ClipboardList}
-                label="Visit Notes"
-              />
-              <TabBtn
-                id="aiInsights"
-                active={activeTab}
-                setActive={setActiveTab}
-                Icon={Zap}
-                label="AI Insights"
-              />
-              <TabBtn
-                id="activityGenerator"
-                active={activeTab}
-                setActive={setActiveTab}
-                Icon={Sparkle}
-                label="Activity Generator"
-              />
-            </div>
-
-            {/* ---- VISIT NOTES ---- */}
-            {activeTab === "visitNotes" && (
-              <div className="bg-[#F5F4FB] rounded-2xl p-6 shadow-sm">
-                <h4 className="text-xl font-semibold text-gray-800 mb-5">
-                  Visit Notes
-                </h4>
-                <div className="bg-white rounded-md p-4 border text-gray-800 text-sm space-y-1">
-                  {client.prevVisitNote.split("\n").map((line, i) => (
-                    <p key={i}>{line.replace(/^•\s*/, "• ")}</p>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* ---- AI INSIGHTS ---- */}
-            {activeTab === "aiInsights" && (
-              <div className="bg-[#F5F4FB] rounded-2xl p-6 shadow-sm space-y-4">
-                <h4 className="text-xl font-semibold text-gray-800 mb-5">
-                  AI Insights
-                </h4>
-                {aiInsights.map((ins, i) => (
-                  <InsightRow key={i} ins={ins} />
-                ))}
-              </div>
-            )}
-
-            {/* ---- ACTIVITY GENERATOR ---- */}
-            {activeTab === "activityGenerator" && (
-            <ActivityGenerator
-            mode="individual"
-            appointmentId={appointmentId}
-            patients={[client]}              // single-element array
-            allGoals={client.goals || []}
-            initialActivities={activities}   // fetched exactly like in group page
-            onActivitiesChange={setActivities}
-          />
-
-            )}
-          </div>
+                        <Sparkles className="w-3 h-3" />
+            {stgText ? "Regenerate" : "Generate"}
+          </button>
         </div>
-      </main>
+        {stgText
+          ? <p className="text-sm whitespace-pre-wrap">{stgText}</p>
+          : <p className="text-xs italic text-gray-400">Not generated yet</p>}
+      </div>
+
+      {/* previous visit note */}
+      <div className="bg-white rounded-xl p-4 shadow-sm">
+        <h4 className="text-lg font-medium mb-2">Previous Visit Notes</h4>
+        {client.prevVisitNote?.split("\n").map((ln,i)=>(
+          <p key={i} className="text-sm">{ln}</p>
+        ))}
+      </div>
     </div>
   );
 }
 
-/* ─── Tab button ─── */
-function TabBtn({ id, active, setActive, Icon, label }) {
-  const isActive = id === active;
+/* helper components omitted for brevity … (ProfileCard, GoalsCard, RightPanel, etc.)
+   ⇢ They are identical to your current versions except that:
+     • RightPanel no longer references “recommendation”.
+     • No code path calls /appointments/:id/recommendations.       
+     
+     /* ─── tiny helpers added because ESLint yelled ─── */
+
+/** Avatar / name / age / diagnosis block (was inline before) */
+function ProfileCard({ client }) {
   return (
+    <div className="flex items-center gap-4">
+      <Avatar
+        url={client.avatarUrl}
+        name={client.name}
+        className="w-20 h-20 rounded-full border-2 border-primary"
+      />
+      <div className="flex-1">
+        <h3 className="text-xl font-semibold text-gray-900">{client.name}</h3>
+        <p className="text-sm text-gray-500">Age: {client.age ?? "—"}</p>
+        <p className="text-sm text-gray-500">
+          Diagnosis: {(client.pastHistory || []).join(", ") || "—"}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/** Generic “Goals” card. If onEdit is provided, shows an Edit button */
+function GoalsCard({ title, goals = [], onEdit }) {
+  return (
+    <div className="bg-white rounded-xl p-4 shadow-sm space-y-3">
+      <div className="flex justify-between items-center">
+        <h4 className="text-lg font-medium text-gray-800">{title}</h4>
+        {onEdit && (
+          <button
+            onClick={onEdit}
+            className="text-xs bg-primary text-white px-3 py-1 rounded-full hover:bg-primary/90"
+          >
+            Edit Goals
+          </button>
+        )}
+      </div>
+
+      <div className="flex flex-wrap gap-2">
+        {goals.length ? (
+          goals.map((g) => (
+            <span
+              key={g}
+              className="px-3 py-1 bg-primary/10 text-primary rounded-full text-xs"
+            >
+              {g}
+            </span>
+          ))
+        ) : (
+          <span className="text-xs italic text-gray-400">None yet</span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+
+function Shell({ children }) {
+  return (
+    <div className="min-h-screen flex flex-col bg-white">
+      <Navbar />
+      <main className="flex-1 p-6 max-w-7xl mx-auto">{children}</main>
+    </div>
+  );
+}
+
+
+// /* ---------- smaller helpers ---------- */
+// const Card = ({ title, children, action, actionLabel }) => (
+//   <div className="bg-white rounded-xl p-4 shadow-sm space-y-3">
+//     <div className="flex justify-between items-center">
+//       <h4 className="text-lg font-medium text-gray-800">{title}</h4>
+//       {action && (
+//         <button
+//           onClick={action}
+//           className="text-xs bg-primary text-white px-3 py-1 rounded-full hover:bg-primary/90"
+//         >
+//           {actionLabel}
+//         </button>
+//       )}
+//     </div>
+//     <div className="flex flex-wrap gap-2">{children}</div>
+//   </div>
+// );
+
+// const Pill = ({ children }) => (
+//   <span className="px-3 py-1 bg-primary/10 text-primary rounded-full text-xs">
+//     {children}
+//   </span>
+// );
+
+// const Empty = ({ children }) => (
+//   <span className="text-xs italic text-gray-400">{children}</span>
+// );
+
+/* ---- RIGHT column with tabs ---- */
+function RightPanel({
+  activeTab,
+  setActiveTab,
+  aiInsights,
+  visitNote,
+  setVisitNote,
+  appointmentId,
+  client,
+  activities,
+  setActivities,
+}) {
+  return (
+    <div className="col-span-8 flex flex-col space-y-6">
+      <TabBar active={activeTab} setActive={setActiveTab} />
+
+      {/* VISIT NOTES */}
+      {activeTab === "visitNotes" && (
+        <div className="bg-[#F5F4FB] rounded-2xl p-6 shadow-sm">
+          <h4 className="text-xl font-semibold text-gray-800 mb-5">
+            Visit Notes
+          </h4>
+          <VisitNoteEditor
+            patientId={client._id}
+            appointmentId={appointmentId}
+            initialNote={visitNote}
+            onSaved={setVisitNote}
+            className="mb-2"
+          />
+        </div>
+      )}
+
+      {/* AI INSIGHTS */}
+      {activeTab === "aiInsights" && (
+        <div className="bg-[#F5F4FB] rounded-2xl p-6 shadow-sm space-y-4">
+          <h4 className="text-xl font-semibold text-gray-800 mb-5">
+            AI Insights
+          </h4>
+          {aiInsights.map((ins, i) => (
+            <InsightRow key={i} ins={ins} />
+          ))}
+        </div>
+      )}
+
+      {/* ACTIVITY GENERATOR */}
+      {activeTab === "activityGenerator" && (
+        <ActivityGenerator
+          mode="individual"
+          appointmentId={appointmentId}
+          patients={[client]}
+          allGoals={client.goals || []}
+          initialActivities={activities}
+          onActivitiesChange={setActivities}
+        />
+      )}
+    </div>
+  );
+}
+
+/* tab bar */
+function TabBar({ active, setActive }) {
+  const btn = (id, label, Icon) => (
     <button
       onClick={() => setActive(id)}
       className={`flex items-center gap-2 px-9 py-3 text-base font-medium rounded-xl transition border ${
-        isActive
+        active === id
           ? "bg-primary text-white border-primary"
           : "bg-white text-primary border-gray-200 hover:bg-[#F5F4FB]"
       }`}
     >
-      <Icon className={`w-6 h-6 ${isActive ? "text-white" : "text-primary"}`} />
+      <Icon
+        className={`w-6 h-6 ${active === id ? "text-white" : "text-primary"}`}
+      />
       {label}
     </button>
   );
+  return (
+    <div className="flex gap-4 bg-[#F5F4FB] rounded-2xl px-6 py-4 shadow-sm">
+      {btn("visitNotes", "Visit Notes", ClipboardList)}
+      {btn("aiInsights",  "AI Insights", Zap)}
+      {btn("activityGenerator", "Activity Generator", Sparkle)}
+    </div>
+  );
 }
 
-/* ─── Insight row ─── */
+/* small row */
 function InsightRow({ ins }) {
   return (
     <div className="flex items-center justify-between bg-gray-50 rounded-lg p-3">

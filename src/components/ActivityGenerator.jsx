@@ -86,6 +86,19 @@ export default function ActivityGenerator({
   /* ============================================================ */
   async function generateDraft() {
     if (busy) return;
+       const missing = patients      /* patients is already in props */
+      .filter(p => members.includes(String(p._id)))
+      .filter(p => !p.stgs?.some(s => String(s.appointment) === appointmentId));
+
+    if (missing.length) {
+      alert(
+        `Generate a Short-Term Goal for:\n• ` +
+        missing.map(m => m.name).join("\n• ") +
+        `\n\nThen retry the Activity Generator.`
+      );
+      return;
+    }
+
     if (!members.length || !goals.length) {
       alert("Pick at least one member and one goal first.");
       return;
@@ -95,7 +108,7 @@ export default function ActivityGenerator({
       setBusy(true);
       const { data } = await api.post(
         `/appointments/${appointmentId}/activity-draft`,
-        { memberIds: members, goals, duration, idea }
+        { memberIds: members, goals, duration, idea, useStg: true }
       );                                              // { name, description, materials[] }
       setDraft(data);
       setMats(data.materials);
@@ -153,52 +166,61 @@ export default function ActivityGenerator({
   /* ============================================================
      2️⃣  CONFIRM & SAVE   (/generate-activity preview:false)    */
   /* ============================================================ */
-  async function confirmAndSave() {
+   async function confirmAndSave() {
     if (busy || !pending) return;
-
     setBusy(true);
     try {
-      /* A. real create -> { plan, activity } */
+      /* 1️⃣  Actually create the Activity in the DB */
       const { data } = await api.post(
         `/appointments/${appointmentId}/generate-activity`,
         pending
       );
       const act = data.activity;
       if (!act?._id) throw new Error("Server did not return activity id");
+      updateActs((a) => [...a, act]);
 
-      updateActs(a => [...a, act]);          // keep accordion up to date
+      /* 2️⃣  Merge the *new* activity-id into each member’s visit */
+      await Promise.all(
+        members.map(async (pid) => {
+          // fetch current visit row
+          const { data: pat } = await api.get(`/clients/${pid}`);
+          const existing =
+            pat.visitHistory?.find(
+              (v) => String(v.appointment) === appointmentId
+            ) || {};
 
-      /* B. turn edited HTML -> PDF blob */
-      const blob = await htmlToPdfBlob(editorRef.current);
-      const date = todayISO().slice(0,10);
-      const slug = slugify(act.name);
-      const fname= `material_${date}_${slug}.pdf`;
-      downloadBlob(blob, fname);
+          const visit = {
+            ...existing,
+            activities: Array.from(
+              new Set([...(existing.activities || []), act._id])
+            ),
+          };
 
-      /* C. upload (dedupe per patient) */
-      await Promise.all(members.map(pid =>
-        uploadMaterial(pid, blob, fname, date, slug)
-      ));
-
-      /* D. visitHistory & goal-progress */
-      const visit = {
-        date       : todayISO(),
-        appointment: appointmentId,
-        type       : mode,
-        note       : "See generated plan.",
-        aiInsights : [],
-        activities : [act._id]
-      };
-      await Promise.all(members.map(pid =>
-        api.post(`/clients/${pid}/visit`, { visit })
-      ));
-      await Promise.all(members.map(pid =>
-        api.patch(`/clients/${pid}/goal-progress/history`, {
-          goals, activityName: act.name
+          await api.post(`/clients/${pid}/visit`, { visit });
         })
-      ));
+      );
 
-      /* clear preview state (ready for next activity) */
+      /* 3️⃣  PDF export & upload stay the same */
+      const blob = await htmlToPdfBlob(editorRef.current);
+      const date = todayISO().slice(0, 10);
+      const slug = slugify(act.name);
+      const fname = `material_${date}_${slug}.pdf`;
+      downloadBlob(blob, fname);
+      await Promise.all(
+        members.map((pid) => uploadMaterial(pid, blob, fname, date, slug))
+      );
+
+      /* 4️⃣  Goal-progress unchanged */
+      await Promise.all(
+        members.map((pid) =>
+          api.patch(`/clients/${pid}/goal-progress/history`, {
+            goals,
+            activityName: act.name,
+          })
+        )
+      );
+
+      /* 5️⃣  UI reset */
       setPlan("");
       setPend(null);
       alert("Saved!");
@@ -327,7 +349,14 @@ export default function ActivityGenerator({
         <>
           <div className="bg-white rounded-md p-4 space-y-4">
             <p className="text-sm"><strong>Name:</strong> {draft.name}</p>
-            <p className="text-sm whitespace-pre-wrap"><strong>Description:</strong> {draft.description}</p>
+            <div className="prose text-sm">
+            <strong>Description:</strong>
+            <div
+              /* render markdown as HTML */
+              dangerouslySetInnerHTML={{ __html: marked.parse(draft.description || "") }}
+            />
+          </div>
+
             <div>
               <p className="text-sm font-medium mb-1">Materials</p>
               <ul className="space-y-2">

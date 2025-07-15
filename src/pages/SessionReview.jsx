@@ -5,6 +5,7 @@ import NewGoalModal   from "../modals/NewGoalModal";
 import GoalPickerModal from "../modals/GoalPickerModal";
 import { getTranscript, chatLLM, getVideo, getProfile } from "../services/api";
 
+import axios from "axios";
 import {
   ChevronDown,
   Plus,
@@ -21,6 +22,14 @@ import Navbar      from "../components/Navbar";
 import EmojiBtn    from "../components/EmojiBtn";
 
 const primaryBtn = "bg-primary hover:bg-primary/90 text-white";
+
+
+/* axios instance for one-off POST below */
+const api = axios.create({
+  baseURL : "http://localhost:4000/api",
+  headers : { Authorization: `Bearer ${localStorage.getItem("jwt")}` },
+});
+
 
 export default function SessionReview() {
   /* ─── basic data ─── */
@@ -212,24 +221,31 @@ export default function SessionReview() {
                 <QuickRow icon={ChevronDown} label="Video Transcript (Show)" onClick={()=>setShowTx(true)}/>
                 <QuickRow icon={ChevronDown} label="Visualized Progress" onClick={()=>alert("Coming soon")}/>
 
-                <button
-                  className="block mx-auto w-80 py-2 rounded-md bg-primary text-white"
-                  onClick={()=>{
-                    const apptId = video.appointment;
-                    apptId
-                        ? navigate(`/appointments/${apptId}/recommendations`, {
-                      state: {
-                        video,
-                        selectedGoals:
-                          (video.goals ?? []).map((g) =>
-                            typeof g === "string" ? g : g.name
-                          ),
-                      },
-                    })
-                      : alert("No appointment linked to this video.");
-                  }}>
-                  Get AI Recommendations
-                </button>
+               <button
+                 className="block mx-auto w-80 py-2 rounded-md bg-primary text-white"
+                 onClick={async () => {
+                   const apptId = video.appointment;
+                   if (!apptId) return alert("No appointment linked to this video.");
+
+                  /* 1️⃣ tell the server to create placeholder visit rows */
+                  try {
+                    await api.post(`/appointments/${apptId}/recommendations`);
+                  } catch (_) {
+                    /* ignore 409/duplicate errors – placeholders may already exist */
+                  }
+
+                  /* 2️⃣ then navigate, passing the usual state */
+                  navigate(`/appointments/${apptId}/recommendations`, {
+                    state: {
+                      video,
+                      selectedGoals: (video.goals ?? []).map(g =>
+                        typeof g === "string" ? g : g.name
+                      ),
+                    },
+                  });
+                }}>
+                Get AI Recommendations
+              </button>
               </>
             )}
           </div>

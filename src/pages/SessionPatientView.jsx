@@ -27,7 +27,7 @@ const PLACEHOLDER_INSIGHT = {
   tag: "No Insights",
   tagColor: "bg-gray-200 text-gray-600",
 };
-const PLACEHOLDER_VISIT_NOTE = `• No visit notes yet for this session.`;
+const PLACEHOLDER_VISIT_NOTE = `• Session Patient View Note`;
 const PLACEHOLDER_ACTIVITY = {
   name: "No activities recorded.",
   description: "",
