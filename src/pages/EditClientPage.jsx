@@ -1,8 +1,3 @@
-/* ────────────────────────────────────────────────────── */
-/* src/pages/EditClientPage.jsx                          */
-/* drop-in replacement – tested with React 18 + Vite     */
-/* ────────────────────────────────────────────────────── */
-
 "use client";
 
 import { useEffect, useState, Suspense } from "react";

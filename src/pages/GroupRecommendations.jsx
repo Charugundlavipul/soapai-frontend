@@ -7,6 +7,7 @@ import Avatar            from "../components/Avatar";
 import VisitNoteEditor   from "../components/VisitNoteEditor";
 import GoalPickerModal   from "../modals/GoalPickerModal";
 import ActivityGenerator from "../components/ActivityGenerator";
+import VisitNotes        from "../components/VisitNotes";
 
 import {
   ChevronLeft,
@@ -95,54 +96,95 @@ export default function GroupRecommendations() {
   /* ------------------------------------------------------------------
      1️⃣  Fetch group + placeholder recommendation
   ------------------------------------------------------------------ */
-    useEffect(() => {
-    (async () => {
-      try {
-        /* ── 0. figure out the group & appointment meta ───────────── */
-        let grpId     = groupIdDirect;
-        let appt      = null;
+  /* ------------------------------------------------------------------
+   1️⃣  Fetch group + hydrate every patient with visitHistory
+------------------------------------------------------------------ */
+/* ------------------------------------------------------------------
+   1️⃣  Fetch group + hydrate every patient with visitHistory
+------------------------------------------------------------------ */
+useEffect(() => {
+  (async () => {
+    try {
+      /* 0. derive group-id and appointment meta */
+      let grpId = groupIdDirect;
+      let appt  = null;
 
-        if (fromAppointment) {
-          const { data } = await api.get(`/appointments/${appointmentId}`);
-          appt   = data;                                 // keep for later
-          grpId  = data.group._id;
-          setApptStart(data.dateTimeStart);
-          setActivities(data.activities || []);
-        }
+      if (fromAppointment) {
+        const { data } = await api.get(`/appointments/${appointmentId}`);
+        appt  = data;
+        grpId = data.group._id;
 
-        /* ── 1. fetch the full group doc (patients array) ─────────── */
-        const { data: grp } = await api.get(`/groups/${grpId}`);
-
-        /* ── 2. ensure each member has a placeholder visit row ────── */
-        if (fromAppointment && appt) {
-          await Promise.all(
-            grp.patients.map(async (p) =>
-              api
-                .post(`/clients/${p._id}/visit`, {
-                  visit: {
-                    date       : appt.dateTimeStart,
-                    appointment: appointmentId,
-                    type       : "group",
-                    note       : PLACEHOLDER_VISIT,
-                    aiInsights : [],
-                    activities : [],
-                  },
-                })
-                .catch(() => {})           // ignore duplicates (409)
-            )
-          );
-        }
-
-        /* ── 3. commit to state ───────────────────────────────────── */
-        setGroup(grp);
-        setLoading(false);
-      } catch (err) {
-        console.error("group-fetch error:", err);
-        setError(true);
-        setLoading(false);
+        setApptStart(data.dateTimeStart);
+        setActivities(data.activities || []);
       }
-    })();
-  }, [appointmentId, groupIdDirect, fromAppointment]);
+
+      /* 1. base group (patients are just ObjectIds here) */
+      const { data: grp } = await api.get(`/groups/${grpId}`);
+
+      /* 2. fetch every patient’s *full* doc in parallel */
+      /* 2. fetch every patient’s *full* doc in parallel */
+      const fullPatients = await Promise.all(
+        grp.patients.map(async (p) => {
+          /* p could be either an ObjectId or an object already */
+          const pid = typeof p === "object" && p !== null ? p._id : p;
+
+          /* pull the latest doc */
+          const { data: pat } = await api.get(`/clients/${pid}`);
+          if (fromAppointment && appt) {
+            const has = (pat.visitHistory ?? []).some(
+              (v) => String(v.appointment) === String(appointmentId)
+            );
+
+            if (!has) {
+              const newRow = {
+                date       : appt.dateTimeStart,
+                appointment: appointmentId,
+                type       : "group",
+                note       : PLACEHOLDER_VISIT,
+                aiInsights : [],
+                activities : [],
+              };
+
+              /* server insert */
+              await api.post(`/clients/${pid}/visit`, { visit: newRow });
+
+              /* ensure visitHistory is an array, then push locally */
+              if (!Array.isArray(pat.visitHistory)) pat.visitHistory = [];
+              pat.visitHistory.push(newRow);
+            }
+          }
+
+          return pat;          // fully-hydrated patient object
+        })
+      );
+
+      /* 3. replace group.patients with the hydrated versions */
+      grp.patients = fullPatients;
+
+      /* 4. seed visitNotes from the newly fetched rows */
+      const seed = {};
+      fullPatients.forEach((p) => {
+        const row = p.visitHistory.find(
+          (v) => String(v.appointment) === String(appointmentId)
+        );
+        if (row) seed[p._id] = row.note;
+      });
+      setVisitNotes(seed);
+
+      /* 5. finally put everything in state */
+      setGroup(grp);
+      setLoading(false);
+    } catch (err) {
+      console.error("group-fetch error:", err);
+      setError(true);
+      setLoading(false);
+    }
+  })();
+}, [appointmentId, groupIdDirect, fromAppointment]);
+
+
+
+
   /* ---------- generate single ST G ---------- */
   async function genStg(pid) {
     try {
@@ -159,8 +201,32 @@ export default function GroupRecommendations() {
     }
   }
 
+  async function saveStg(pid, text) {                    // ⬅︎ NEW
+    await api.patch(`/clients/${pid}/stg`,               // ⬅︎ NEW
+      { appointmentId, text });                          // ⬅︎ NEW
+    const { data: fresh } = await api.get(`/clients/${pid}`); // ⬅︎ NEW
+    setGroup(g => ({                                     // ⬅︎ NEW
+      ...g,                                              // ⬅︎ NEW
+      patients: g.patients.map(p =>                      // ⬅︎ NEW
+        String(p._id) === pid ? fresh : p                // ⬅︎ NEW
+      ),                                                 // ⬅︎ NEW
+    }));                                                 // ⬅︎ NEW
+  } 
+
   /* ---------- utility ---------- */
-  const visitNoteOf = pid => visitNotes[pid] || PLACEHOLDER_VISIT;
+    const visitNoteOf = pid => {
+    /* 1. if we already have an edited / freshly-saved note in state, use it */
+    if (visitNotes.hasOwnProperty(pid)) return visitNotes[pid];
+
+    /* 2. otherwise fall back to whatever is already in the patient’s
+          visitHistory that came down with the <group> payload           */
+    const pat  = group.patients.find(p => String(p._id) === String(pid));
+    const row  = pat?.visitHistory?.find(
+                  v => String(v.appointment) === String(appointmentId)
+                );
+
+    return (row?.note ?? "").trim() || PLACEHOLDER_VISIT;
+  };
   /* ---------- markdown → html side-effect ---------- */
   useEffect(() => {
     if (planMD && editorRef.current) {
@@ -207,12 +273,15 @@ export default function GroupRecommendations() {
           <TabBar active={activeTab} setActive={setActiveTab} />
 
           {activeTab === "visitNotes" && (
-            <VisitNotesTab
-              group={group}
+            <VisitNotes
+              patients={group.patients}
               appointmentId={appointmentId}
-              visitNoteOf={visitNoteOf}
-              setVisitNotes={setVisitNotes}
+              noteOf={visitNoteOf}
+              onSave={(pid, txt) =>
+                setVisitNotes((v) => ({ ...v, [pid]: txt }))
+              }
               onGenStg={genStg}
+              onSaveStg={saveStg}
             />
           )}
 
@@ -354,48 +423,6 @@ const LeftPanel = ({
         Edit Goals
       </button>
     </div>
-  </div>
-);
-
-/* ------------------------------------------------------------------ */
-/* Visit-Notes tab                                                    */
-/* ------------------------------------------------------------------ */
-const VisitNotesTab = ({
-  group,
-  appointmentId,
-  visitNoteOf,
-  setVisitNotes,
-  onGenStg,
-}) => (
-  <div className="bg-[#F5F4FB] rounded-2xl p-6 shadow-sm space-y-6">
-    <h4 className="text-xl font-semibold text-gray-800">Visit Notes</h4>
-
-    {group.patients.map(p => (
-      <div key={p._id} className="space-y-2">
-        <h5 className="font-semibold text-primary">{p.name}</h5>
-        <div className="flex items-start justify-between">
-          <p className="text-sm mb-2">
-            <span className="font-semibold">Short-Term Goal:</span>{" "}
-            {stgForAppt(p, appointmentId) || "—"}
-          </p>
-          <button
-            title="Generate ST G"
-            className="flex items-center gap-1 text-xs text-primary hover:underline"
-            onClick={() => onGenStg(String(p._id))}
-          >
-            <Sparkles className="w-4 h-4" />
-            AI&nbsp;Goal
-          </button>
-        </div>
-
-        <VisitNoteEditor
-          patientId={p._id}
-          appointmentId={appointmentId}
-          initialNote={visitNoteOf(p._id)}
-          onSaved={txt => setVisitNotes(v => ({ ...v, [p._id]: txt }))}
-        />
-      </div>
-    ))}
   </div>
 );
 

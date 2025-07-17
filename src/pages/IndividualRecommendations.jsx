@@ -8,6 +8,7 @@ import { ChevronLeft, ClipboardList, Zap, Sparkle,Sparkles } from "lucide-react"
 import Avatar              from "../components/Avatar";
 import ActivityGenerator   from "../components/ActivityGenerator";
 import VisitNoteEditor     from "../components/VisitNoteEditor";
+import VisitNotes          from "../components/VisitNotes";
 
 /* ───── axios helper ───── */
 const api = axios.create({
@@ -21,6 +22,8 @@ function stgForAppt(patient, appointmentId) {
       ?.text ?? ""
   );
 }
+
+
 
 /* ───── placeholders ───── */
 const PLACEHOLDER_VISIT_NOTE = `Patient struggled with Pronouncing words ending with /s and /es`.trim();
@@ -62,16 +65,29 @@ export default function IndividualRecommendations() {
   /* ──────────────────────────────────────────
      1️⃣  Load patient + ensure placeholder visit
   ────────────────────────────────────────── */
-  useEffect(() => {
-    (async () => {
-      try {
-        /* 1. pull the appointment */
-        const { data: appt } = await api.get(`/appointments/${appointmentId}`);
-        if (!appt?.patient) throw new Error("No patient linked");
-        setApptStart(appt.dateTimeStart);
-        setActivities(appt.activities || []);
+  /* ──────────────────────────────────────────
+   1️⃣  Load patient + create placeholder — only if missing
+────────────────────────────────────────── */
+useEffect(() => {
+  (async () => {
+    try {
+      /* 1. pull the appointment */
+      const { data: appt } = await api.get(`/appointments/${appointmentId}`);
+      if (!appt?.patient) throw new Error("No patient linked");
 
-        /* 2. upsert placeholder visit once */
+      setApptStart(appt.dateTimeStart);
+      setActivities(appt.activities || []);
+
+      /* 2. fetch the full patient FIRST */
+      let { data: pat } = await api.get(`/clients/${appt.patient._id}`);
+
+      /* 3. does this appointment already have a row? */
+      const hasRow = pat.visitHistory.some(
+        v => String(v.appointment) === String(appointmentId)
+      );
+
+      /* 4. only create the placeholder once */
+      if (!hasRow) {
         await api.post(`/clients/${appt.patient._id}/visit`, {
           visit: {
             date       : appt.dateTimeStart,
@@ -81,29 +97,36 @@ export default function IndividualRecommendations() {
             aiInsights : PLACEHOLDER_AI_INSIGHTS,
             activities : []
           }
-        }).catch(() => {});                    // ignore 409-ish duplicates
+        });
 
-        /* 3. fetch updated patient */
-        const { data: pat } = await api.get(`/clients/${appt.patient._id}`);
-        setClient(pat);
-
-        /* show existing note if present */
-        const row = pat.visitHistory.find(v => String(v.appointment) === appointmentId);
-        if (row?.note) setVisitNote(row.note);
-
-        /* init goals from video (if routed that way) */
-        const gInitial =
-          location.state?.video?.goals?.map(g => typeof g === "string" ? g : g.name) || [];
-        setSelectedGoals(gInitial);
-
-        setLoading(false);
-      } catch (err) {
-        console.error(err);
-        setError(true);
-        setLoading(false);
+        /* re-fetch so we have the new row locally */
+        ({ data: pat } = await api.get(`/clients/${appt.patient._id}`));
       }
-    })();
-  }, [appointmentId, location.state]);
+
+      /* 5. push to state */
+      setClient(pat);
+
+      const row = pat.visitHistory.find(
+        v => String(v.appointment) === appointmentId
+      );
+      if (row?.note) setVisitNote(row.note);
+
+      /* init goals from video (if routed that way) */
+      const gInitial =
+        location.state?.video?.goals?.map(g =>
+          typeof g === "string" ? g : g.name
+        ) || [];
+      setSelectedGoals(gInitial);
+
+      setLoading(false);
+    } catch (err) {
+      console.error(err);
+      setError(true);
+      setLoading(false);
+    }
+  })();
+}, [appointmentId, location.state]);
+
 
   /* ─── STG generator ─── */
   async function generateStg() {
@@ -119,6 +142,17 @@ export default function IndividualRecommendations() {
       alert(e.response?.data?.message || "Failed to generate ST Goal");
     }
   }
+
+
+    /* ─── save (edited) ST-Goal ─── */                    // ⬅︎ NEW
+  async function saveStg(text) {                         // ⬅︎ NEW
+    if (!client?._id) return;                            // ⬅︎ NEW
+    await api.patch(`/clients/${client._id}/stg`,        // ⬅︎ NEW
+      { appointmentId, text });                          // ⬅︎ NEW
+    const { data: fresh } = await api.get(               // ⬅︎ NEW
+      `/clients/${client._id}`);                         // ⬅︎ NEW
+    setClient(fresh);                                    // ⬅︎ NEW
+  }  
 
   /* ╭────────────────────────────────────────╮
      │   render guards                        │
@@ -163,8 +197,9 @@ export default function IndividualRecommendations() {
           client={client}
           selectedGoals={selectedGoals}
           onEditGoals={() => setShowPicker(true)}
-          onGenerateStg={generateStg}
-          stgText={stgText}  
+          appointmentId={appointmentId}
+          
+           
         />
 
         {/* RIGHT */}
@@ -185,6 +220,9 @@ export default function IndividualRecommendations() {
           setBusy={setBusy}
           selectedGoals={selectedGoals}
           apptStart={apptStart}
+          onGenerateStg={generateStg}
+          stgText={stgText}
+          saveStg={saveStg} 
         />
       </div>
     </Shell>
@@ -192,45 +230,48 @@ export default function IndividualRecommendations() {
 }
 
 /* ───────────────── left panel ───────────────── */
-function LeftPanel({ client, selectedGoals, stgText, onEditGoals, onGenerateStg }) {
+function LeftPanel({ client, selectedGoals, onEditGoals, appointmentId }) {
+
+  const prevVisit =
+    client.visitHistory            // array of visits
+      // ignore the current appointment
+      .filter(v => String(v.appointment) !== String(appointmentId))
+      // ignore rows without a note
+      .filter(v => (v.note || "").trim().length)
+      // newest → oldest
+      .sort((a, b) => new Date(b.date) - new Date(a.date))[0] || null;
   return (
     <div className="col-span-4 bg-[#F9F9FD] rounded-2xl p-6 space-y-6">
       {/* profile */}
       <ProfileCard client={client} />
 
-      {/* long-term goals */}
-      {/* <GoalsCard title="All Long Term Goals" goals={client.goals} /> */}
-
-      {/* session goals */}
       <GoalsCard
         title="Goals for this Session"
         goals={selectedGoals}
         onEdit={onEditGoals}
       />
 
-      {/* STG card */}
-      <div className="bg-white rounded-xl p-4 shadow-sm space-y-3">
-        <div className="flex justify-between items-center">
-          <h4 className="text-lg font-medium text-gray-800">AI Short-Term Goal</h4>
-          <button
-            onClick={onGenerateStg}
-            className="text-xs bg-primary text-white px-3 py-1 rounded-full hover:bg-primary/90"
-          >
-                        <Sparkles className="w-3 h-3" />
-            {stgText ? "Regenerate" : "Generate"}
-          </button>
-        </div>
-        {stgText
-          ? <p className="text-sm whitespace-pre-wrap">{stgText}</p>
-          : <p className="text-xs italic text-gray-400">Not generated yet</p>}
-      </div>
-
       {/* previous visit note */}
       <div className="bg-white rounded-xl p-4 shadow-sm">
         <h4 className="text-lg font-medium mb-2">Previous Visit Notes</h4>
-        {client.prevVisitNote?.split("\n").map((ln,i)=>(
-          <p key={i} className="text-sm">{ln}</p>
-        ))}
+                {prevVisit ? (
+          <>
+            <p className="text-xs text-gray-500 mb-1">
+              {new Date(prevVisit.date).toLocaleDateString("en-GB", {
+                day: "2-digit",
+                month: "short",
+                year: "numeric",
+              })}
+            </p>
+            {prevVisit.note.split("\n").map((ln, i) => (
+              <p key={i} className="text-sm">{ln}</p>
+            ))}
+          </>
+        ) : (
+          <p className="text-sm italic text-gray-400">
+            No prior visit notes
+          </p>
+        )}
       </div>
     </div>
   );
@@ -343,10 +384,13 @@ function RightPanel({
   aiInsights,
   visitNote,
   setVisitNote,
+  saveStg,
   appointmentId,
   client,
   activities,
   setActivities,
+  stgText,
+  onGenerateStg
 }) {
   return (
     <div className="col-span-8 flex flex-col space-y-6">
@@ -354,18 +398,15 @@ function RightPanel({
 
       {/* VISIT NOTES */}
       {activeTab === "visitNotes" && (
-        <div className="bg-[#F5F4FB] rounded-2xl p-6 shadow-sm">
-          <h4 className="text-xl font-semibold text-gray-800 mb-5">
-            Visit Notes
-          </h4>
-          <VisitNoteEditor
-            patientId={client._id}
-            appointmentId={appointmentId}
-            initialNote={visitNote}
-            onSaved={setVisitNote}
-            className="mb-2"
-          />
-        </div>
+        <VisitNotes
+          patients={[client]}
+          appointmentId={appointmentId}
+          noteOf={(pid) => visitNote}                    /* single patient */
+          onSave={(pid, txt) => setVisitNote(txt)}
+          onGenStg={onGenerateStg}
+          onSaveStg={(pid, txt) => saveStg(txt)}  
+          
+        />
       )}
 
       {/* AI INSIGHTS */}
