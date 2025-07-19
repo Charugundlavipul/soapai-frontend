@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useRef, useCallback } from "react"
+import { useState, useEffect, useRef, useCallback, useMemo } from "react"
 import PropTypes from "prop-types"
 import { marked } from "marked"
 import jsPDF from "jspdf"
@@ -26,7 +26,7 @@ marked.setOptions({
   mangle: false,
 })
 
-// Helper function to safely parse markdown to HTML
+// Helper function to safely parse markdown to HTML with live updates
 const parseMarkdownToHTML = (markdown) => {
   if (!markdown || typeof markdown !== "string") return ""
   try {
@@ -67,6 +67,74 @@ class RequestDeduplicator {
 
 const requestDeduplicator = new RequestDeduplicator()
 
+// Live Markdown Editor Component
+function LiveMarkdownEditor({ markdown, onChange, className = "" }) {
+  const editorRef = useRef(null)
+  const [isEditing, setIsEditing] = useState(false)
+
+  // Memoize HTML conversion for performance
+  const htmlContent = useMemo(() => parseMarkdownToHTML(markdown), [markdown])
+
+  // Update editor content when markdown changes externally, but not during editing
+  useEffect(() => {
+    if (editorRef.current && !isEditing && markdown) {
+      const newHtml = parseMarkdownToHTML(markdown)
+      if (editorRef.current.innerHTML !== newHtml) {
+        editorRef.current.innerHTML = newHtml
+      }
+    }
+  }, [markdown, isEditing])
+
+  const handleInput = useCallback(
+      (e) => {
+        const newHtml = e.currentTarget.innerHTML
+        // Store the HTML content directly for editing
+        onChange(newHtml)
+      },
+      [onChange],
+  )
+
+  const handleFocus = useCallback(() => {
+    setIsEditing(true)
+  }, [])
+
+  const handleBlur = useCallback(() => {
+    setIsEditing(false)
+  }, [])
+
+  return (
+      <div className={`bg-white rounded-xl border border-gray-200 p-4 ${className}`}>
+        <div
+            ref={editorRef}
+            contentEditable
+            suppressContentEditableWarning
+            className="prose max-w-none min-h-[200px] focus:outline-none text-sm
+  [&>h1]:text-2xl [&>h1]:font-bold [&>h1]:text-gray-900 [&>h1]:mb-4 [&>h1]:mt-6
+  [&>h2]:text-xl [&>h2]:font-bold [&>h2]:text-gray-900 [&>h2]:mb-3 [&>h2]:mt-5
+  [&>h3]:text-lg [&>h3]:font-semibold [&>h3]:text-gray-800 [&>h3]:mb-2 [&>h3]:mt-4
+  [&>h4]:text-base [&>h4]:font-semibold [&>h4]:text-gray-800 [&>h4]:mb-2 [&>h4]:mt-3
+  [&>h5]:text-sm [&>h5]:font-semibold [&>h5]:text-gray-800 [&>h5]:mb-1 [&>h5]:mt-2
+  [&>h6]:text-sm [&>h6]:font-medium [&>h6]:text-gray-700 [&>h6]:mb-1 [&>h6]:mt-2
+  [&>ul]:list-disc [&>ul]:ml-4 [&>ul]:mb-3
+  [&>ol]:list-decimal [&>ol]:ml-4 [&>ol]:mb-3
+  [&>li]:mb-1 [&>li]:leading-relaxed
+  [&>p]:mb-3 [&>p]:leading-relaxed
+  [&>strong]:font-semibold [&>strong]:text-gray-800
+  [&>em]:italic [&>em]:text-gray-700
+  [&>blockquote]:border-l-4 [&>blockquote]:border-gray-300 [&>blockquote]:pl-4 [&>blockquote]:italic [&>blockquote]:text-gray-600 [&>blockquote]:mb-3
+  [&>code]:bg-gray-100 [&>code]:px-1 [&>code]:py-0.5 [&>code]:rounded [&>code]:text-sm [&>code]:font-mono
+  [&>pre]:bg-gray-100 [&>pre]:p-3 [&>pre]:rounded [&>pre]:overflow-x-auto [&>pre]:mb-3
+  [&>hr]:border-gray-300 [&>hr]:my-4"
+            dangerouslySetInnerHTML={{ __html: htmlContent }}
+            onInput={handleInput}
+            onFocus={handleFocus}
+            onBlur={handleBlur}
+            style={{ minHeight: "200px" }}
+        />
+      </div>
+  )
+}
+
 export default function ActivityGenerator({
                                             mode,
                                             appointmentId,
@@ -86,9 +154,9 @@ export default function ActivityGenerator({
   const [draft, setDraft] = useState(null)
   const [draftMaterials, setDraftMaterials] = useState([])
 
-  // Preview stage
+  // Preview stage - using separate states for better reactivity
   const [planMarkdown, setPlanMarkdown] = useState("")
-  const [htmlDoc, setHtmlDoc] = useState("")
+  const [planHtml, setPlanHtml] = useState("")
   const [pendingPayload, setPendingPayload] = useState(null)
 
   // Loading states to prevent duplicate requests
@@ -98,7 +166,6 @@ export default function ActivityGenerator({
     confirmSave: false,
   })
 
-  const editorRef = useRef(null)
   const [toast, setToast] = useState({ show: false, message: "", type: "success" })
 
   // Deduplication function for activities
@@ -133,14 +200,21 @@ export default function ActivityGenerator({
       [deduplicateActivities, onActivitiesChange],
   )
 
-  // Update HTML editor when plan markdown changes
+  // Live markdown to HTML conversion
   useEffect(() => {
-    if (planMarkdown && editorRef.current) {
-      const html = marked.parse(planMarkdown)
-      editorRef.current.innerHTML = html
-      setHtmlDoc(html)
+    if (planMarkdown) {
+      const html = parseMarkdownToHTML(planMarkdown)
+      setPlanHtml(html)
+    } else {
+      setPlanHtml("")
     }
   }, [planMarkdown])
+
+  // Handle live markdown editing - store HTML directly during editing
+  const handleMarkdownChange = useCallback((newHtml) => {
+    setPlanHtml(newHtml)
+    // Don't convert back to markdown during editing to preserve formatting
+  }, [])
 
   // Toast helpers
   const showToast = (message, type = "success") => {
@@ -217,7 +291,9 @@ export default function ActivityGenerator({
           api.post(`/appointments/${appointmentId}/generate-activity`, payload),
       )
 
-      setPlanMarkdown((data.plan || "").trim())
+      // Set markdown content - this will trigger the live HTML conversion
+      const markdownContent = (data.plan || "").trim()
+      setPlanMarkdown(markdownContent)
 
       // Store payload for confirmation (remove preview flag)
       const { preview, ...confirmPayload } = payload
@@ -265,8 +341,17 @@ export default function ActivityGenerator({
         return [...prevActivities, newActivity]
       })
 
-      // Step 3: Generate and download PDF
-      const blob = await htmlToPdfBlob(editorRef.current)
+      // Step 3: Generate and download PDF using current HTML
+      const tempDiv = document.createElement("div")
+      tempDiv.innerHTML = planHtml || parseMarkdownToHTML(planMarkdown)
+      tempDiv.style.padding = "20px"
+      tempDiv.style.fontFamily = "Arial, sans-serif"
+      tempDiv.className = "prose max-w-none"
+      document.body.appendChild(tempDiv)
+
+      const blob = await htmlToPdfBlob(tempDiv)
+      document.body.removeChild(tempDiv)
+
       const date = todayISO().slice(0, 10)
       const slug = slugify(newActivity.name)
       const filename = `material_${date}_${slug}.pdf`
@@ -316,8 +401,8 @@ export default function ActivityGenerator({
 
       // Step 6: Clear preview state
       setPlanMarkdown("")
+      setPlanHtml("")
       setPendingPayload(null)
-      setHtmlDoc("")
 
       showToast("Activity saved successfully!")
     } catch (err) {
@@ -475,7 +560,7 @@ export default function ActivityGenerator({
         )}
 
         {/* Generate Draft Button */}
-        {!draft && (
+        {!draft && !planMarkdown && (
             <button
                 onClick={generateDraft}
                 disabled={loadingStates.generateDraft || isAnyLoading}
@@ -536,34 +621,38 @@ export default function ActivityGenerator({
             </>
         )}
 
-        {/* Preview & confirm */}
+        {/* Preview & confirm - This section should now render properly */}
         {planMarkdown && (
             <div className="space-y-4">
               <h5 className="text-lg font-semibold text-gray-800">Generated Plan</h5>
-              <div className="bg-white rounded-xl border border-gray-200 p-4">
-                <div
-                    ref={editorRef}
-                    contentEditable
-                    suppressContentEditableWarning
-                    className="prose max-w-none min-h-[200px] focus:outline-none text-sm"
-                    dangerouslySetInnerHTML={{ __html: htmlDoc }}
-                    onInput={(e) => setHtmlDoc(e.currentTarget.innerHTML)}
-                />
+              <LiveMarkdownEditor markdown={planMarkdown} onChange={handleMarkdownChange} className="min-h-[300px]" />
+              <div className="flex gap-3">
+                <button
+                    onClick={confirmAndSave}
+                    disabled={loadingStates.confirmSave || isAnyLoading}
+                    className="bg-[#3D298D] text-white px-6 py-3 rounded-xl font-medium hover:bg-[#3D298D]/90 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
+                >
+                  {loadingStates.confirmSave ? "Saving…" : "Confirm & Save"}
+                </button>
+                <button
+                    onClick={() => {
+                      setPlanMarkdown("")
+                      setPlanHtml("")
+                      setPendingPayload(null)
+                    }}
+                    disabled={isAnyLoading}
+                    className="px-6 py-3 rounded-xl border border-gray-200 text-gray-700 hover:bg-gray-50 transition-colors"
+                >
+                  Cancel
+                </button>
               </div>
-              <button
-                  onClick={confirmAndSave}
-                  disabled={loadingStates.confirmSave || isAnyLoading}
-                  className="bg-[#3D298D] text-white px-6 py-3 rounded-xl font-medium hover:bg-[#3D298D]/90 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
-              >
-                {loadingStates.confirmSave ? "Saving…" : "Confirm & Save"}
-              </button>
             </div>
         )}
       </div>
   )
 }
 
-// Activity Accordion Component (unchanged but with improved error handling)
+// Activity Accordion Component with improved markdown rendering
 function ActivityAccordion({ act, appointmentId, memberOptions, onUpdated, onDeleted, showToast }) {
   const [open, setOpen] = useState(false)
   const [editing, setEditing] = useState(false)
@@ -575,6 +664,9 @@ function ActivityAccordion({ act, appointmentId, memberOptions, onUpdated, onDel
     description: act.description,
     members: act.members?.map(String) || [],
   })
+
+  // Memoize HTML conversion for better performance
+  const activityHtml = useMemo(() => parseMarkdownToHTML(act.description || ""), [act.description])
 
   const patch = (updates) => setForm((prev) => ({ ...prev, ...updates }))
 
@@ -650,8 +742,20 @@ function ActivityAccordion({ act, appointmentId, memberOptions, onUpdated, onDel
             }
         >
           <div
-              className="prose prose-sm max-w-none text-gray-600 [&>h1]:text-lg [&>h1]:font-semibold [&>h1]:text-gray-800 [&>h1]:mb-3 [&>h2]:text-base [&>h2]:font-semibold [&>h2]:text-gray-800 [&>h2]:mb-2 [&>h3]:text-sm [&>h3]:font-semibold [&>h3]:text-gray-800 [&>h3]:mb-2 [&>ul]:list-disc [&>ul]:ml-4 [&>ol]:list-decimal [&>ol]:ml-4 [&>li]:mb-1 [&>p]:mb-2 [&>strong]:font-semibold [&>strong]:text-gray-800"
-              dangerouslySetInnerHTML={{ __html: parseMarkdownToHTML(act.description || "") }}
+              className="prose prose-sm max-w-none text-gray-600
+  [&>h1]:text-xl [&>h1]:font-bold [&>h1]:text-gray-900 [&>h1]:mb-3 [&>h1]:mt-4
+  [&>h2]:text-lg [&>h2]:font-bold [&>h2]:text-gray-900 [&>h2]:mb-2 [&>h2]:mt-3
+  [&>h3]:text-base [&>h3]:font-semibold [&>h3]:text-gray-800 [&>h3]:mb-2 [&>h3]:mt-3
+  [&>h4]:text-sm [&>h4]:font-semibold [&>h4]:text-gray-800 [&>h4]:mb-1 [&>h4]:mt-2
+  [&>h5]:text-sm [&>h5]:font-medium [&>h5]:text-gray-800 [&>h5]:mb-1 [&>h5]:mt-2
+  [&>h6]:text-xs [&>h6]:font-medium [&>h6]:text-gray-700 [&>h6]:mb-1 [&>h6]:mt-2
+  [&>ul]:list-disc [&>ul]:ml-4 [&>ul]:mb-2
+  [&>ol]:list-decimal [&>ol]:ml-4 [&>ol]:mb-2
+  [&>li]:mb-1 [&>li]:leading-relaxed
+  [&>p]:mb-2 [&>p]:leading-relaxed
+  [&>strong]:font-semibold [&>strong]:text-gray-800
+  [&>em]:italic [&>em]:text-gray-700"
+              dangerouslySetInnerHTML={{ __html: activityHtml }}
           />
         </AccordionRow>
 
