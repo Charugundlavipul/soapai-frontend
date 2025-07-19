@@ -1,672 +1,773 @@
-/*  client/src/components/ActivityGenerator.jsx
-   ──────────────────────────────────────────────────────────
-   Sleeker UI – same core logic
-   ────────────────────────────────────────────────────────── */
+"use client"
 
-import { useState, useEffect, useRef } from "react";
-import PropTypes                       from "prop-types";
-import { marked }                      from "marked";
-import jsPDF                           from "jspdf";
-import html2canvas                     from "html2canvas";
-import qs                              from "qs";
-import AccordionRow   from "./AccordionRow";
-import DropdownChips  from "./DropdownChips";
-import axios          from "axios";
+import { useState, useEffect, useRef, useCallback } from "react"
+import PropTypes from "prop-types"
+import { marked } from "marked"
+import jsPDF from "jspdf"
+import html2canvas from "html2canvas"
+import qs from "qs"
+import AccordionRow from "./AccordionRow"
+import MultiSelectDropdown from "./multi-select-dropdown"
+import SingleSelectDropdown from "./single-select-dropdown"
+import SavingToast from "../components/savingToast"
+import axios from "axios"
+import { Users, Target, Clock, Edit, Trash2, AlertTriangle } from "lucide-react"
 
 const api = axios.create({
-  baseURL : "http://localhost:4000/api",
-  headers : { Authorization: `Bearer ${localStorage.getItem("jwt")}` }
-});
+  baseURL: "http://localhost:4000/api",
+  headers: { Authorization: `Bearer ${localStorage.getItem("jwt")}` },
+})
 
-/* ────────── tiny helpers ────────── */
-const todayISO = () => new Date().toISOString();
-const slugify  = (s) =>
-  s.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+// Configure marked for better HTML output
+marked.setOptions({
+  breaks: true,
+  gfm: true,
+  headerIds: false,
+  mangle: false,
+})
 
-/* =================================================================== */
-/*                            COMPONENT                                */
-/* =================================================================== */
+// Helper function to safely parse markdown to HTML
+const parseMarkdownToHTML = (markdown) => {
+  if (!markdown || typeof markdown !== "string") return ""
+  try {
+    return marked.parse(markdown)
+  } catch (error) {
+    console.error("Error parsing markdown:", error)
+    return markdown
+  }
+}
+
+// Helper functions
+const todayISO = () => new Date().toISOString()
+const slugify = (s) =>
+    s
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "_")
+        .replace(/^_+|_+$/g, "")
+
+// Request deduplication utility
+class RequestDeduplicator {
+  constructor() {
+    this.pendingRequests = new Map()
+  }
+
+  async dedupe(key, requestFn) {
+    if (this.pendingRequests.has(key)) {
+      return this.pendingRequests.get(key)
+    }
+
+    const promise = requestFn().finally(() => {
+      this.pendingRequests.delete(key)
+    })
+
+    this.pendingRequests.set(key, promise)
+    return promise
+  }
+}
+
+const requestDeduplicator = new RequestDeduplicator()
+
 export default function ActivityGenerator({
-  mode,                 // "group" | "individual"
-  appointmentId,
-  patients,
-  allGoals,
-  initialActivities,
-  onActivitiesChange
-}) {
-  /* ───────────── state ───────────── */
-  const [activities, setActs] = useState(initialActivities);
+                                            mode,
+                                            appointmentId,
+                                            patients,
+                                            allGoals,
+                                            initialActivities,
+                                            onActivitiesChange,
+                                          }) {
+  // State management with deduplication
+  const [activities, setActivities] = useState([])
+  const [members, setMembers] = useState(mode === "individual" ? [patients?.[0]?._id].filter(Boolean) : [])
+  const [goals, setGoals] = useState([])
+  const [duration, setDuration] = useState("30 Minutes")
+  const [idea, setIdea] = useState("")
 
-  const [members,  setMembers] = useState(
-    mode === "individual" ? [patients?.[0]?._id].filter(Boolean) : []
-  );
-  const [goals,    setGoals]  = useState([]);
-  const [duration, setDur]    = useState("30 Minutes");
-  const [idea,     setIdea]   = useState("");
+  // Draft stage
+  const [draft, setDraft] = useState(null)
+  const [draftMaterials, setDraftMaterials] = useState([])
 
-  const [draft,      setDraft]      = useState(null);
-  const [draftMats,  setMats]       = useState([]);
-  const [draftBackup,     setDraftBackup]     = useState(null);
-  const [draftMatsBackup, setDraftMatsBackup] = useState([]);
+  // Preview stage
+  const [planMarkdown, setPlanMarkdown] = useState("")
+  const [htmlDoc, setHtmlDoc] = useState("")
+  const [pendingPayload, setPendingPayload] = useState(null)
 
-  const [planMD,  setPlan]  = useState("");
-  const [htmlDoc, setHtml]  = useState("");
-  const [pending, setPend]  = useState(null);
+  // Loading states to prevent duplicate requests
+  const [loadingStates, setLoadingStates] = useState({
+    generateDraft: false,
+    previewPlan: false,
+    confirmSave: false,
+  })
 
-  const [busy, setBusy] = useState(false);
-  const editorRef       = useRef(null);
+  const editorRef = useRef(null)
+  const [toast, setToast] = useState({ show: false, message: "", type: "success" })
 
-  /* keep activities in sync with parent */
-  useEffect(() => setActs(initialActivities), [initialActivities]);
+  // Deduplication function for activities
+  const deduplicateActivities = useCallback((activitiesList) => {
+    if (!Array.isArray(activitiesList)) return []
 
-  const updateActs = (next) => {
-    setActs(next);
-    onActivitiesChange?.(next);
-  };
+    const seen = new Set()
+    return activitiesList.filter((activity) => {
+      if (!activity?._id) return false
+      if (seen.has(activity._id)) return false
+      seen.add(activity._id)
+      return true
+    })
+  }, [])
 
-  /* mirror Markdown → editable HTML */
+  // Initialize activities with deduplication
   useEffect(() => {
-    if (planMD && editorRef.current) {
-      const html = marked.parse(planMD);
-      editorRef.current.innerHTML = html;
-      setHtml(html);
-    }
-  }, [planMD]);
+    const uniqueActivities = deduplicateActivities(initialActivities || [])
+    setActivities(uniqueActivities)
+  }, [initialActivities, deduplicateActivities])
 
-  /* ──────────────────────────────────
-     0️⃣  DRAFT
-     ────────────────────────────────── */
+  // Update activities with deduplication
+  const updateActivities = useCallback(
+      (updater) => {
+        setActivities((prevActivities) => {
+          const newActivities = typeof updater === "function" ? updater(prevActivities) : updater
+          const uniqueActivities = deduplicateActivities(newActivities)
+          onActivitiesChange?.(uniqueActivities)
+          return uniqueActivities
+        })
+      },
+      [deduplicateActivities, onActivitiesChange],
+  )
+
+  // Update HTML editor when plan markdown changes
+  useEffect(() => {
+    if (planMarkdown && editorRef.current) {
+      const html = marked.parse(planMarkdown)
+      editorRef.current.innerHTML = html
+      setHtmlDoc(html)
+    }
+  }, [planMarkdown])
+
+  // Toast helpers
+  const showToast = (message, type = "success") => {
+    setToast({ show: true, message, type })
+  }
+
+  const hideToast = () => {
+    setToast({ show: false, message: "", type: "success" })
+  }
+
+  // Set loading state helper
+  const setLoadingState = (key, value) => {
+    setLoadingStates((prev) => ({ ...prev, [key]: value }))
+  }
+
+  // Generate draft with deduplication
   async function generateDraft() {
-    if (busy) return;
-
-    const missing = patients
-      .filter((p) => members.includes(String(p._id)))
-      .filter(
-        (p) =>
-          !p.stgs?.some((s) => String(s.appointment) === appointmentId)
-      );
-
-    if (missing.length) {
-      alert(
-        `Generate a Short-Term Goal for:\n• ` +
-          missing.map((m) => m.name).join("\n• ") +
-          `\n\nThen retry the Activity Generator.`
-      );
-      return;
-    }
+    if (loadingStates.generateDraft) return
 
     if (!members.length || !goals.length) {
-      alert("Pick at least one member **and** one goal first.");
-      return;
+      showToast("Pick at least one member and one goal first.", "error")
+      return
     }
 
+    const requestKey = `draft-${appointmentId}-${members.join(",")}-${goals.join(",")}-${duration}`
+
     try {
-      setBusy(true);
-      const { data } = await api.post(
-        `/appointments/${appointmentId}/activity-draft`,
-        { memberIds: members, goals, duration, idea, useStg: true }
-      );                                           // { name, description, materials[] }
-      setDraft(data);
-      setDraftBackup(data);
-      setMats(data.materials);
-      setDraftMatsBackup(data.materials);
+      setLoadingState("generateDraft", true)
+
+      const { data } = await requestDeduplicator.dedupe(requestKey, () =>
+          api.post(`/appointments/${appointmentId}/activity-draft`, {
+            memberIds: members,
+            goals,
+            duration,
+            idea,
+          }),
+      )
+
+      setDraft(data)
+      setDraftMaterials(data.materials || [])
     } catch (err) {
-      alert(err.response?.data?.message || "Draft generation failed.");
+      console.error("Draft generation error:", err)
+      showToast(err.response?.data?.message || "Draft generation failed.", "error")
     } finally {
-      setBusy(false);
+      setLoadingState("generateDraft", false)
     }
   }
 
-  /* simple button component (keeps code tidy) */
-  const Btn = ({ label, onClick, disabled, variant = "primary" }) => (
-    <button
-      onClick={onClick}
-      disabled={disabled}
-      className={
-        variant === "primary"
-          ? "bg-primary text-white rounded-full px-5 py-2 hover:bg-primary/90 disabled:opacity-60"
-          : "border rounded-full px-5 py-2 disabled:opacity-60"
-      }
-    >
-      {label}
-    </button>
-  );
-  
+  // Preview plan with deduplication
   async function previewPlan() {
-    if (busy || !draft) return;
-    if (!draftMats.length) {
-      alert("Select at least one material.");
-      return;
+    if (loadingStates.previewPlan || !draft) return
+
+    if (!draftMaterials.length) {
+      showToast("Select at least one material.", "error")
+      return
     }
 
     const payload = {
-      memberIds    : members,
+      memberIds: members,
       goals,
       duration,
       idea,
-      materials    : draftMats,
-      activityName : draft.name,
-      preview      : true
-    };
+      materials: draftMaterials,
+      activityName: draft.name,
+      preview: true,
+    }
+
+    const requestKey = `preview-${appointmentId}-${JSON.stringify(payload)}`
 
     try {
-      setBusy(true);
-      const { data } = await api.post(
-        `/appointments/${appointmentId}/generate-activity`,
-        payload
-      );                                           // { plan }
-      setPlan((data.plan || "").trim());
-      delete payload.preview;          // keep a clean copy for confirm
-      setPend(payload);
+      setLoadingState("previewPlan", true)
 
-      /* clear draft UI */
-      setDraft(null);
-      setMats([]);
-      setIdea("");
+      const { data } = await requestDeduplicator.dedupe(requestKey, () =>
+          api.post(`/appointments/${appointmentId}/generate-activity`, payload),
+      )
+
+      setPlanMarkdown((data.plan || "").trim())
+
+      // Store payload for confirmation (remove preview flag)
+      const { preview, ...confirmPayload } = payload
+      setPendingPayload(confirmPayload)
+
+      // Reset draft UI
+      setDraft(null)
+      setDraftMaterials([])
+      setIdea("")
     } catch (err) {
-      console.error(err);
-      alert(err.response?.data?.message || "Failed to get preview.");
+      console.error("Preview generation error:", err)
+      showToast(err.response?.data?.message || "Failed to get preview.", "error")
     } finally {
-      setBusy(false);
+      setLoadingState("previewPlan", false)
     }
   }
 
-  const backToForm  = () => { setDraft(null); setMats([]); };
-  const backToDraft = () => {
-    setPlan("");  setPend(null);
-    setDraft(draftBackup); setMats(draftMatsBackup);
-  };
-
-  async function regeneratePlan() {
-    if (busy || !pending) return;
-    try {
-      setBusy(true);
-      const { data } = await api.post(
-        `/appointments/${appointmentId}/generate-activity`,
-        { ...pending, preview: true }
-      );
-      setPlan((data.plan || "").trim());
-    } catch (err) {
-      console.error(err);
-      alert(err.response?.data?.message || "Failed to regenerate.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  /* ──────────────────────────────────
-     2️⃣  CONFIRM & SAVE   (logic untouched)
-     ────────────────────────────────── */
+  // Confirm and save with comprehensive deduplication
   async function confirmAndSave() {
-    if (busy || !pending) return;
-    setBusy(true);
+    if (loadingStates.confirmSave || !pendingPayload) return
+
+    const requestKey = `save-${appointmentId}-${JSON.stringify(pendingPayload)}`
+
     try {
-      /* 1. create Activity */
-      const { data } = await api.post(
-        `/appointments/${appointmentId}/generate-activity`,
-        pending
-      );
-      const act = data.activity;
-      if (!act?._id) throw new Error("Server did not return activity id");
-      updateActs((a) => [...a, act]);
+      setLoadingState("confirmSave", true)
 
-      /* 2. link Activity IDs into each visit row */
-      await Promise.all(
-        members.map(async (pid) => {
-          const { data: pat } = await api.get(`/clients/${pid}`);
-          const existing =
-            pat.visitHistory?.find(
-              (v) => String(v.appointment) === appointmentId
-            ) || {};
-          const visit = {
-            ...existing,
-            activities: Array.from(
-              new Set([...(existing.activities || []), act._id])
-            ),
-          };
-          await api.post(`/clients/${pid}/visit`, { visit });
-        })
-      );
+      // Step 1: Create activity with deduplication
+      const { data } = await requestDeduplicator.dedupe(requestKey, () =>
+          api.post(`/appointments/${appointmentId}/generate-activity`, pendingPayload),
+      )
 
-      /* 3. PDF export + upload */
-      const blob = await htmlToPdfBlob(editorRef.current);
-      const date = todayISO().slice(0, 10);
-      const slug = slugify(act.name);
-      const fname = `material_${date}_${slug}.pdf`;
-      downloadBlob(blob, fname);
-      await Promise.all(
-        members.map((pid) =>
-          uploadMaterial(pid, blob, fname, date, slug, appointmentId)
-        )
-      );
+      const newActivity = data.activity
+      if (!newActivity?._id) {
+        throw new Error("Server did not return activity ID")
+      }
 
-      /* 4. goal-progress history */
-      await Promise.all(
-        members.map((pid) =>
-          api.patch(`/clients/${pid}/goal-progress/history`, {
-            goals,
-            activityName: act.name,
-          })
-        )
-      );
+      // Step 2: Update activities list with deduplication
+      updateActivities((prevActivities) => {
+        // Check if activity already exists
+        const exists = prevActivities.some((act) => act._id === newActivity._id)
+        if (exists) {
+          console.warn("Activity already exists, skipping duplicate")
+          return prevActivities
+        }
+        return [...prevActivities, newActivity]
+      })
 
-      /* 5. tidy-up */
-      setPlan(""); setPend(null);
-      alert("Saved!");
+      // Step 3: Generate and download PDF
+      const blob = await htmlToPdfBlob(editorRef.current)
+      const date = todayISO().slice(0, 10)
+      const slug = slugify(newActivity.name)
+      const filename = `material_${date}_${slug}.pdf`
+      downloadBlob(blob, filename)
+
+      // Step 4: Upload materials with deduplication
+      await Promise.allSettled(
+          members.map((patientId) =>
+              uploadMaterial(patientId, blob, filename, date, slug).catch((err) => {
+                console.error(`Failed to upload material for patient ${patientId}:`, err)
+                return null // Don't fail the entire operation
+              }),
+          ),
+      )
+
+      // Step 5: Create visit history entries
+      const visit = {
+        date: todayISO(),
+        appointment: appointmentId,
+        type: mode,
+        note: "See generated plan.",
+        aiInsights: [],
+        activities: [newActivity._id],
+      }
+
+      await Promise.allSettled([
+        // Visit history
+        ...members.map((patientId) =>
+            api.post(`/clients/${patientId}/visit`, { visit }).catch((err) => {
+              console.error(`Failed to create visit for patient ${patientId}:`, err)
+              return null
+            }),
+        ),
+        // Goal progress
+        ...members.map((patientId) =>
+            api
+                .patch(`/clients/${patientId}/goal-progress/history`, {
+                  goals,
+                  activityName: newActivity.name,
+                })
+                .catch((err) => {
+                  console.error(`Failed to update goal progress for patient ${patientId}:`, err)
+                  return null
+                }),
+        ),
+      ])
+
+      // Step 6: Clear preview state
+      setPlanMarkdown("")
+      setPendingPayload(null)
+      setHtmlDoc("")
+
+      showToast("Activity saved successfully!")
     } catch (err) {
-      console.error(err);
-      alert(err.response?.data?.message || "Save failed – see console.");
+      console.error("Save operation failed:", err)
+      showToast(err.response?.data?.message || "Save failed – please try again.", "error")
+
+      // Rollback: Remove the activity if it was added but save failed
+      if (err.response?.status !== 409) {
+        // Don't rollback on conflict errors
+        updateActivities((prevActivities) => prevActivities.filter((act) => act._id !== err.activityId))
+      }
     } finally {
-      setBusy(false);
+      setLoadingState("confirmSave", false)
     }
   }
 
-  /* ────────────────────────────────── */
-  const StageBadge = ({ n, label }) => (
-    <span className="inline-flex items-center gap-1 text-xs font-semibold uppercase tracking-wide rounded-full bg-primary/10 text-primary px-2 py-0.5">
-      <span className="inline-block w-4 h-4 text-[10px] leading-4 bg-primary text-white rounded-full text-center">
-        {n}
-      </span>
-      {label}
-    </span>
-  );
+  // Helper utilities
+  async function htmlToPdfBlob(node) {
+    const canvas = await html2canvas(node, { scale: 2 })
+    const pdf = new jsPDF({ unit: "pt", format: "a4" })
+    const w = pdf.internal.pageSize.getWidth()
+    const h = (canvas.height * w) / canvas.width
+    pdf.addImage(canvas.toDataURL("image/png"), "PNG", 0, 0, w, h)
+    return pdf.output("blob")
+  }
 
-  /* ──────────────────────────────────
-     RENDER
-     ────────────────────────────────── */
+  function downloadBlob(blob, filename) {
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement("a")
+    a.href = url
+    a.download = filename
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  async function uploadMaterial(patientId, blob, filename, date, slug) {
+    const query = qs.stringify({ appointment: appointmentId, activity: slug })
+
+    // Remove existing duplicates
+    try {
+      const existingMaterials = await api
+          .get(`/clients/${patientId}/materials?${query}`)
+          .then((r) => r.data)
+          .catch(() => [])
+
+      await Promise.allSettled(
+          existingMaterials.map((material) => api.delete(`/clients/${patientId}/materials/${material._id}`)),
+      )
+    } catch (err) {
+      console.warn("Failed to clean up existing materials:", err)
+    }
+
+    // Upload new material
+    const formData = new FormData()
+    formData.append("visitDate", date)
+    formData.append("appointment", appointmentId)
+    formData.append("activity", slug)
+    formData.append("file", new File([blob], filename, { type: "application/pdf" }))
+
+    return api.post(`/clients/${patientId}/materials`, formData, {
+      headers: { "Content-Type": "multipart/form-data" },
+    })
+  }
+
+  const isAnyLoading = Object.values(loadingStates).some(Boolean)
+
   return (
-    <div className="bg-[#F5F4FB] rounded-2xl p-8 shadow-sm space-y-8">
-      {/* ─── Saved activities ─── */}
-      {activities.length > 0 && (
-        <section className="space-y-4">
-          <h4 className="text-xl font-semibold flex items-center gap-2">
-            <StageBadge n="A" label="Saved" />
-            Generated Activities
-          </h4>
+      <div className="space-y-6">
+        {/* Toast Notifications */}
+        <SavingToast show={toast.show} message={toast.message} type={toast.type} onClose={hideToast} />
 
-          <div className="space-y-3">
-            {activities.map((a) => (
-              <ActivityAccordion
-                key={a._id}
-                act={a}
-                appointmentId={appointmentId}
-                memberOptions={patients.map((p) => ({
-                  id: p._id,
-                  label: p.name,
-                }))}
-                onUpdated={(u) =>
-                  updateActs((acts) =>
-                    acts.map((x) => (x._id === u._id ? u : x))
-                  )
-                }
-                onDeleted={(id) =>
-                  updateActs((acts) => acts.filter((x) => x._id !== id))
-                }
-              />
-            ))}
-          </div>
+        {/* Existing activities */}
+        {activities.length > 0 && (
+            <>
+              <h4 className="text-xl font-semibold text-gray-800">Generated Activities</h4>
+              {activities.map((activity) => (
+                  <ActivityAccordion
+                      key={activity._id}
+                      act={activity}
+                      appointmentId={appointmentId}
+                      memberOptions={patients.map((p) => ({ id: p._id, label: p.name }))}
+                      onUpdated={(updatedActivity) => {
+                        updateActivities((prevActivities) =>
+                            prevActivities.map((act) => (act._id === updatedActivity._id ? updatedActivity : act)),
+                        )
+                        showToast("Activity updated successfully!")
+                      }}
+                      onDeleted={(deletedId) => {
+                        updateActivities((prevActivities) => prevActivities.filter((act) => act._id !== deletedId))
+                        showToast("Activity deleted successfully!")
+                      }}
+                      showToast={showToast}
+                  />
+              ))}
+              <hr className="border-gray-200" />
+            </>
+        )}
 
-          <hr className="border-gray-200" />
-        </section>
-      )}
-
-      {/* ─── Generator ─── */}
-      <section className="space-y-6">
-        <h4 className="text-xl font-semibold flex items-center gap-2">
-          <StageBadge n="1" label="Create" />
-          Activity Generator
-        </h4>
+        {/* Generator form */}
+        <h4 className="text-xl font-semibold text-gray-800">Activity Generator</h4>
 
         {mode === "group" && (
-          <DropdownChips
-            label="Members"
-            placeholder="Select Patients"
-            options={patients.map((p) => ({ id: p._id, label: p.name }))}
-            selected={members}
-            setSelected={setMembers}
-          />
+            <MultiSelectDropdown
+                label="Members"
+                placeholder="Select Patients"
+                options={patients.map((p) => ({ id: p._id, label: p.name }))}
+                selectedIds={members}
+                onSelectionChange={setMembers}
+                showTags={true}
+                emptyTagsMessage="No patients selected"
+                size="md"
+                icon={<Users className="h-5 w-5 text-gray-400" />}
+            />
         )}
 
-        <DropdownChips
-          label="Goals"
-          placeholder="Select Goals"
-          options={allGoals.map((g) => ({ id: g, label: g }))}
-          selected={goals}
-          setSelected={setGoals}
+        <MultiSelectDropdown
+            label="Goals"
+            placeholder="Select Goals"
+            options={allGoals.map((g) => ({ id: g, label: g }))}
+            selectedIds={goals}
+            onSelectionChange={setGoals}
+            showTags={true}
+            emptyTagsMessage="No goals selected"
+            size="md"
+            icon={<Target className="h-5 w-5 text-gray-400" />}
         />
 
-        <div className="flex items-center gap-3">
-          <label className="text-sm font-medium">Duration</label>
-          <select
-            value={duration}
-            onChange={(e) => setDur(e.target.value)}
-            className="border rounded-lg px-3 py-2 focus:ring-primary"
-          >
-            {["15", "30", "45", "60"].map((m) => (
-              <option key={m}>{m} Minutes</option>
-            ))}
-          </select>
-        </div>
+        <SingleSelectDropdown
+            label="Duration"
+            placeholder="Select duration"
+            options={[
+              { id: "15 Minutes", label: "15 Minutes" },
+              { id: "30 Minutes", label: "30 Minutes" },
+              { id: "45 Minutes", label: "45 Minutes" },
+              { id: "60 Minutes", label: "60 Minutes" },
+            ]}
+            selectedId={duration}
+            onSelectionChange={setDuration}
+            size="md"
+            icon={<Clock className="h-5 w-5 text-gray-400" />}
+        />
 
-        {!planMD && (
-          <textarea
-            rows={3}
-            value={idea}
-            onChange={(e) => setIdea(e.target.value)}
-            placeholder="Therapist idea (optional)…"
-            className="w-full border rounded-md px-3 py-2 shadow-sm text-sm focus:ring-primary"
-          />
+        {!planMarkdown && (
+            <div className="space-y-2">
+              <label className="block text-sm font-medium text-gray-700">Therapist Idea (Optional)</label>
+              <textarea
+                  rows={3}
+                  value={idea}
+                  onChange={(e) => setIdea(e.target.value)}
+                  placeholder="Add any specific ideas or requirements for the activity..."
+                  className="w-full bg-gray-50 rounded-xl border border-gray-200 px-4 py-3 text-base focus:ring-2 focus:ring-[#3D298D]/20 focus:border-[#3D298D] transition-colors resize-none"
+                  disabled={isAnyLoading}
+              />
+            </div>
         )}
 
-        {/* -- step-0 buttons -- */}
-        {!draft && !planMD && (
-          <Btn
-            label={busy ? "Generating…" : "Generate Activity"}
-            onClick={generateDraft}
-            disabled={busy}
-          />
+        {/* Generate Draft Button */}
+        {!draft && (
+            <button
+                onClick={generateDraft}
+                disabled={loadingStates.generateDraft || isAnyLoading}
+                className="bg-[#3D298D] text-white rounded-xl px-6 py-3 font-medium hover:bg-[#3D298D]/90 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
+            >
+              {loadingStates.generateDraft ? "Generating…" : "Generate Activity"}
+            </button>
         )}
 
-        {/* -- draft card -- */}
-        {draft && !planMD && (
-          <>
-            <div className="bg-white rounded-xl shadow-sm p-6 space-y-4">
-              <h5 className="text-lg font-semibold flex items-center gap-2">
-                <StageBadge n="2" label="Draft" />
-                Review &amp; select materials
-              </h5>
+        {/* Draft card & preview button */}
+        {draft && !planMarkdown && (
+            <>
+              <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-4">
+                <div>
+                  <h5 className="text-lg font-semibold text-gray-800 mb-2">Activity Draft</h5>
+                  <p className="text-sm text-gray-600">
+                    <strong>Name:</strong> {draft.name}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-sm text-gray-600 whitespace-pre-wrap">
+                    <strong>Description:</strong> {draft.description}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-gray-700 mb-3">Select Materials</p>
+                  <div className="space-y-2 max-h-48 overflow-y-auto">
+                    {draft.materials?.map((material) => (
+                        <label
+                            key={material}
+                            className="flex items-center gap-3 p-2 rounded-lg hover:bg-gray-50 cursor-pointer"
+                        >
+                          <input
+                              type="checkbox"
+                              checked={draftMaterials.includes(material)}
+                              onChange={() =>
+                                  setDraftMaterials((prev) =>
+                                      prev.includes(material) ? prev.filter((m) => m !== material) : [...prev, material],
+                                  )
+                              }
+                              className="h-4 w-4 text-[#3D298D] border-gray-300 rounded focus:ring-[#3D298D]/20"
+                              disabled={isAnyLoading}
+                          />
+                          <span className="text-sm text-gray-700">{material}</span>
+                        </label>
+                    ))}
+                  </div>
+                </div>
+              </div>
 
-              <p className="text-sm">
-                <strong>Name:</strong> {draft.name}
-              </p>
+              <button
+                  onClick={previewPlan}
+                  disabled={!draftMaterials.length || loadingStates.previewPlan || isAnyLoading}
+                  className="bg-[#3D298D] text-white rounded-xl px-6 py-3 font-medium hover:bg-[#3D298D]/90 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
+              >
+                {loadingStates.previewPlan ? "Creating…" : "Generate With Selected Materials"}
+              </button>
+            </>
+        )}
 
-              <div className="prose text-sm">
-                <strong>Description:</strong>
+        {/* Preview & confirm */}
+        {planMarkdown && (
+            <div className="space-y-4">
+              <h5 className="text-lg font-semibold text-gray-800">Generated Plan</h5>
+              <div className="bg-white rounded-xl border border-gray-200 p-4">
                 <div
-                  dangerouslySetInnerHTML={{
-                    __html: marked.parse(draft.description || ""),
-                  }}
+                    ref={editorRef}
+                    contentEditable
+                    suppressContentEditableWarning
+                    className="prose max-w-none min-h-[200px] focus:outline-none text-sm"
+                    dangerouslySetInnerHTML={{ __html: htmlDoc }}
+                    onInput={(e) => setHtmlDoc(e.currentTarget.innerHTML)}
                 />
               </div>
-
-              <div>
-                <p className="text-sm font-medium mb-1">Materials</p>
-                <ul className="space-y-2 max-h-48 overflow-auto">
-                  {draft.materials.map((m) => (
-                    <li
-                      key={m}
-                      className="flex items-center gap-2 whitespace-nowrap"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={draftMats.includes(m)}
-                        onChange={() =>
-                          setMats((prev) =>
-                            prev.includes(m)
-                              ? prev.filter((x) => x !== m)
-                              : [...prev, m]
-                          )
-                        }
-                        className="h-4 w-4 accent-primary border rounded focus:ring-primary"
-                      />
-                      <span className="text-sm">{m}</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
+              <button
+                  onClick={confirmAndSave}
+                  disabled={loadingStates.confirmSave || isAnyLoading}
+                  className="bg-[#3D298D] text-white px-6 py-3 rounded-xl font-medium hover:bg-[#3D298D]/90 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
+              >
+                {loadingStates.confirmSave ? "Saving…" : "Confirm & Save"}
+              </button>
             </div>
-
-            <div className="flex gap-3">
-              <Btn
-                label={busy ? "Creating…" : "Generate With Materials"}
-                onClick={previewPlan}
-                disabled={!draftMats.length || busy}
-              />
-              <Btn label="Back" onClick={backToForm} disabled={busy} variant="ghost" />
-            </div>
-          </>
         )}
-
-        {/* -- preview card -- */}
-        {planMD && (
-          <>
-            <h5 className="text-lg font-semibold flex items-center gap-2">
-              <StageBadge n="3" label="Preview" />
-              Final edits
-            </h5>
-
-            <div
-              ref={editorRef}
-              contentEditable
-              suppressContentEditableWarning
-              className="prose max-w-none min-h-[200px] border rounded-md p-4 bg-white text-sm overflow-auto"
-              dangerouslySetInnerHTML={{ __html: htmlDoc }}
-              onInput={(e) => setHtml(e.currentTarget.innerHTML)}
-            />
-
-            <div className="flex flex-wrap gap-3">
-              <Btn
-                label={busy ? "Saving…" : "Confirm & Save"}
-                onClick={confirmAndSave}
-                disabled={busy}
-              />
-              <Btn
-                label="Back"
-                onClick={backToDraft}
-                disabled={busy}
-                variant="ghost"
-              />
-              <Btn
-                label="Regenerate"
-                onClick={regeneratePlan}
-                disabled={busy}
-                variant="primary"
-              />
-            </div>
-          </>
-        )}
-      </section>
-    </div>
-  );
+      </div>
+  )
 }
 
-/* =================================================================== */
-/* Accordion – same logic, light style tweaks                           */
-/* =================================================================== */
-function ActivityAccordion({
-  act,
-  appointmentId,
-  memberOptions,
-  onUpdated,
-  onDeleted,
-}) {
-  const [open,    setOpen]    = useState(false);
-  const [editing, setEditing] = useState(false);
-  const [busy,    setBusy]    = useState(false);
+// Activity Accordion Component (unchanged but with improved error handling)
+function ActivityAccordion({ act, appointmentId, memberOptions, onUpdated, onDeleted, showToast }) {
+  const [open, setOpen] = useState(false)
+  const [editing, setEditing] = useState(false)
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [busy, setBusy] = useState(false)
 
   const [form, setForm] = useState({
-    name       : act.name,
+    name: act.name,
     description: act.description,
-    members    : act.members?.map(String) || [],
-  });
-  const patch = (f) => setForm((prev) => ({ ...prev, ...f }));
+    members: act.members?.map(String) || [],
+  })
+
+  const patch = (updates) => setForm((prev) => ({ ...prev, ...updates }))
 
   const save = async () => {
-    try {
-      setBusy(true);
-      const { data } = await api.patch(
-        `/appointments/${appointmentId}/activities/${act._id}`,
-        {
-          name       : form.name,
-          description: form.description,
-          members    : form.members,
-        }
-      );
-      onUpdated(data);
-      setEditing(false);
-    } catch {
-      alert("Edit failed");
-    } finally {
-      setBusy(false);
-    }
-  };
+    if (busy) return
 
-  const del = async () => {
-    if (!window.confirm("Delete this activity?")) return;
     try {
-      setBusy(true);
-      await api.delete(
-        `/appointments/${appointmentId}/activities/${act._id}`
-      );
-      onDeleted(act._id);
-    } catch {
-      alert("Delete failed");
+      setBusy(true)
+      const { data } = await api.patch(`/appointments/${appointmentId}/activities/${act._id}`, {
+        name: form.name,
+        description: form.description,
+        members: form.members,
+      })
+      onUpdated(data)
+      setEditing(false)
+    } catch (err) {
+      console.error("Edit failed:", err)
+      showToast(err.response?.data?.message || "Edit failed", "error")
     } finally {
-      setBusy(false);
+      setBusy(false)
     }
-  };
+  }
+
+  const deleteActivity = async () => {
+    if (busy) return
+
+    try {
+      setBusy(true)
+      await api.delete(`/appointments/${appointmentId}/activities/${act._id}`)
+      onDeleted(act._id)
+      setShowDeleteConfirm(false)
+    } catch (err) {
+      console.error("Delete failed:", err)
+      showToast(err.response?.data?.message || "Delete failed", "error")
+    } finally {
+      setBusy(false)
+    }
+  }
 
   return (
-    <>
-      <AccordionRow
-        open={open}
-        onToggle={() => setOpen((o) => !o)}
-        header={
-          <div className="flex items-center gap-2">
-            <span className="font-medium">{act.name}</span>
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                setEditing(true);
-              }}
-              className="text-xs underline text-primary"
-            >
-              Edit
-            </button>
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                del();
-              }}
-              className="text-xs underline text-red-600"
-            >
-              Delete
-            </button>
-          </div>
-        }
-      >
-        <div
-          className="prose text-sm"
-          dangerouslySetInnerHTML={{
-            __html: marked.parse(act.description || ""),
-          }}
-        />
-      </AccordionRow>
+      <>
+        <AccordionRow
+            open={open}
+            onToggle={() => setOpen((prev) => !prev)}
+            header={
+              <div className="flex items-center justify-between w-full">
+                <span className="font-medium text-gray-800">{act.name}</span>
+                <div className="flex items-center gap-2">
+                  <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setEditing(true)
+                      }}
+                      className="p-2 text-gray-500 hover:text-[#3D298D] hover:bg-gray-100 rounded-lg transition-colors"
+                      title="Edit activity"
+                      disabled={busy}
+                  >
+                    <Edit className="h-4 w-4" />
+                  </button>
+                  <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setShowDeleteConfirm(true)
+                      }}
+                      className="p-2 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                      title="Delete activity"
+                      disabled={busy}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+            }
+        >
+          <div
+              className="prose prose-sm max-w-none text-gray-600 [&>h1]:text-lg [&>h1]:font-semibold [&>h1]:text-gray-800 [&>h1]:mb-3 [&>h2]:text-base [&>h2]:font-semibold [&>h2]:text-gray-800 [&>h2]:mb-2 [&>h3]:text-sm [&>h3]:font-semibold [&>h3]:text-gray-800 [&>h3]:mb-2 [&>ul]:list-disc [&>ul]:ml-4 [&>ol]:list-decimal [&>ol]:ml-4 [&>li]:mb-1 [&>p]:mb-2 [&>strong]:font-semibold [&>strong]:text-gray-800"
+              dangerouslySetInnerHTML={{ __html: parseMarkdownToHTML(act.description || "") }}
+          />
+        </AccordionRow>
 
-      {editing && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
-          <div className="bg-white rounded-xl p-6 w-[38rem] max-w-full space-y-5">
-            <h3 className="text-lg font-semibold">Edit Activity</h3>
+        {/* Edit Modal */}
+        {editing && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4">
+              <div className="bg-white rounded-xl p-6 w-full max-w-2xl space-y-5">
+                <h3 className="text-lg font-semibold text-gray-800">Edit Activity</h3>
 
-            <input
-              value={form.name}
-              onChange={(e) => patch({ name: e.target.value })}
-              className="w-full border rounded px-3 py-2"
-            />
+                <div className="space-y-2">
+                  <label className="block text-sm font-medium text-gray-700">Activity Name</label>
+                  <input
+                      value={form.name}
+                      onChange={(e) => patch({ name: e.target.value })}
+                      className="w-full bg-gray-50 rounded-xl border border-gray-200 px-4 py-3 text-base focus:ring-2 focus:ring-[#3D298D]/20 focus:border-[#3D298D] transition-colors"
+                      placeholder="Activity name"
+                      disabled={busy}
+                  />
+                </div>
 
-            <textarea
-              rows={6}
-              value={form.description}
-              onChange={(e) => patch({ description: e.target.value })}
-              className="w-full border rounded px-3 py-2"
-            />
+                <div className="space-y-2">
+                  <label className="block text-sm font-medium text-gray-700">Description</label>
+                  <textarea
+                      rows={6}
+                      value={form.description}
+                      onChange={(e) => patch({ description: e.target.value })}
+                      className="w-full bg-gray-50 rounded-xl border border-gray-200 px-4 py-3 text-base focus:ring-2 focus:ring-[#3D298D]/20 focus:border-[#3D298D] transition-colors resize-none"
+                      placeholder="Activity description"
+                      disabled={busy}
+                  />
+                </div>
 
-            {memberOptions.length > 1 && (
-              <DropdownChips
-                label="Members"
-                placeholder="Add patient"
-                options={memberOptions}
-                selected={form.members}
-                setSelected={(m) => patch({ members: m })}
-              />
-            )}
+                {memberOptions.length > 1 && (
+                    <MultiSelectDropdown
+                        label="Members"
+                        placeholder="Select patients"
+                        options={memberOptions}
+                        selectedIds={form.members}
+                        onSelectionChange={(members) => patch({ members })}
+                        showTags={true}
+                        emptyTagsMessage="No patients selected"
+                        size="sm"
+                        icon={<Users className="h-4 w-4 text-gray-400" />}
+                    />
+                )}
 
-            <div className="flex justify-end gap-3">
-              <button
-                onClick={() => setEditing(false)}
-                className="px-4 py-2 rounded border"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={save}
-                disabled={busy}
-                className="bg-primary text-white px-4 py-2 rounded disabled:opacity-60"
-              >
-                {busy ? "Saving…" : "Save"}
-              </button>
+                <div className="flex justify-end gap-3 pt-4">
+                  <button
+                      onClick={() => setEditing(false)}
+                      className="px-4 py-2 rounded-xl border border-gray-200 text-gray-700 hover:bg-gray-50 transition-colors"
+                      disabled={busy}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                      onClick={save}
+                      disabled={busy}
+                      className="bg-[#3D298D] text-white px-4 py-2 rounded-xl disabled:opacity-60 hover:bg-[#3D298D]/90 transition-colors"
+                  >
+                    {busy ? "Saving…" : "Save"}
+                  </button>
+                </div>
+              </div>
             </div>
-          </div>
-        </div>
-      )}
-    </>
-  );
+        )}
+
+        {/* Delete Confirmation Modal */}
+        {showDeleteConfirm && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4">
+              <div className="bg-white rounded-xl p-6 w-full max-w-md space-y-4">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-red-100 rounded-full">
+                    <AlertTriangle className="h-5 w-5 text-red-600" />
+                  </div>
+                  <h3 className="text-lg font-semibold text-gray-800">Delete Activity</h3>
+                </div>
+
+                <p className="text-gray-600">Are you sure you want to delete "{act.name}"? This action cannot be undone.</p>
+
+                <div className="flex justify-end gap-3 pt-4">
+                  <button
+                      onClick={() => setShowDeleteConfirm(false)}
+                      className="px-4 py-2 rounded-xl border border-gray-200 text-gray-700 hover:bg-gray-50 transition-colors"
+                      disabled={busy}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                      onClick={deleteActivity}
+                      disabled={busy}
+                      className="bg-red-600 text-white px-4 py-2 rounded-xl disabled:opacity-60 hover:bg-red-700 transition-colors"
+                  >
+                    {busy ? "Deleting…" : "Delete"}
+                  </button>
+                </div>
+              </div>
+            </div>
+        )}
+      </>
+  )
 }
 
 ActivityAccordion.propTypes = {
-  act           : PropTypes.object.isRequired,
-  appointmentId : PropTypes.string.isRequired,
-  memberOptions : PropTypes.array.isRequired,
-  onUpdated     : PropTypes.func.isRequired,
-  onDeleted     : PropTypes.func.isRequired,
-};
+  act: PropTypes.object.isRequired,
+  appointmentId: PropTypes.string.isRequired,
+  memberOptions: PropTypes.array.isRequired,
+  onUpdated: PropTypes.func.isRequired,
+  onDeleted: PropTypes.func.isRequired,
+  showToast: PropTypes.func.isRequired,
+}
 
 ActivityGenerator.propTypes = {
-  mode              : PropTypes.oneOf(["group", "individual"]).isRequired,
-  appointmentId     : PropTypes.string.isRequired,
-  patients          : PropTypes.array.isRequired,
-  allGoals          : PropTypes.array.isRequired,
-  initialActivities : PropTypes.array.isRequired,
+  mode: PropTypes.oneOf(["group", "individual"]).isRequired,
+  appointmentId: PropTypes.string.isRequired,
+  patients: PropTypes.array.isRequired,
+  allGoals: PropTypes.array.isRequired,
+  initialActivities: PropTypes.array.isRequired,
   onActivitiesChange: PropTypes.func,
-};
-
-/* =================================================================== */
-/* helper utils (unchanged)                                            */
-/* =================================================================== */
-async function htmlToPdfBlob(node) {
-  const canvas = await html2canvas(node, { scale: 2 });
-  const pdf    = new jsPDF({ unit: "pt", format: "a4" });
-  const w      = pdf.internal.pageSize.getWidth();
-  const h      = (canvas.height * w) / canvas.width;
-  pdf.addImage(canvas.toDataURL("image/png"), "PNG", 0, 0, w, h);
-  return pdf.output("blob");
-}
-
-function downloadBlob(blob, filename) {
-  const url = URL.createObjectURL(blob);
-  const a   = document.createElement("a");
-  a.href = url; a.download = filename; a.click();
-  URL.revokeObjectURL(url);
-}
-
-async function uploadMaterial(pid, blob, fname, date, slug, appointmentId) {
-  const q   = qs.stringify({ appointment: appointmentId, activity: slug });
-  const dup = await api
-    .get(`/clients/${pid}/materials?${q}`)
-    .then((r) => r.data)
-    .catch(() => []);
-
-  await Promise.all(
-    dup.map((d) => api.delete(`/clients/${pid}/materials/${d._id}`))
-  );
-
-  const fd = new FormData();
-  fd.append("visitDate",   date);
-  fd.append("appointment", appointmentId);
-  fd.append("activity",    slug);
-  fd.append("file", new File([blob], fname, { type: "application/pdf" }));
-
-  await api.post(`/clients/${pid}/materials`, fd, {
-    headers: { "Content-Type": "multipart/form-data" },
-  });
 }
