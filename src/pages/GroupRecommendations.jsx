@@ -27,9 +27,7 @@ const api = axios.create({
 /* ──────────────────────────────────────────────────────────── */
 /* Place-holders                                               */
 /* ──────────────────────────────────────────────────────────── */
-const PLACEHOLDER_VISIT = `
-Student reviewed flower parts and recalled 2 of 5 vocabulary terms. They created a bouquet with interest and watched a spring video, answering questions with growing comprehension. During a contraction-building activity, they identified apostrophes replacing “i” in “who’s” and “what’s,” showing grammar awareness.
-`.trim();
+const PLACEHOLDER_VISIT = "Student reviewed flower parts and recalled 2 of 5 vocabulary terms. They created a bouquet with interest and watched a spring video, answering questions with growing comprehension. During a contraction-building activity, they identified apostrophes replacing “i” in “who’s” and “what’s,” showing grammar awareness.";
 
 const PLACEHOLDER_GROUP_INSIGHT = {
   text    : "Group demonstrated steady progress in social engagement: 80% more peer-to-peer interactions than the previous session.",
@@ -45,10 +43,9 @@ const PLACEHOLDER_INDIVIDUAL_INSIGHT = {
 };
 
 function stgForAppt(patient, appointmentId) {
-  return (
-    patient.stgs?.find(s => String(s.appointment) === String(appointmentId))
-      ?.text ?? ""
-  );
+  return patient.stgs?.find(
+    (s) => String(s.appointment) === String(appointmentId)
+  ) || null;
 }
 
 export default function GroupRecommendations() {
@@ -96,12 +93,7 @@ export default function GroupRecommendations() {
   /* ------------------------------------------------------------------
      1️⃣  Fetch group + placeholder recommendation
   ------------------------------------------------------------------ */
-  /* ------------------------------------------------------------------
-   1️⃣  Fetch group + hydrate every patient with visitHistory
------------------------------------------------------------------- */
-/* ------------------------------------------------------------------
-   1️⃣  Fetch group + hydrate every patient with visitHistory
------------------------------------------------------------------- */
+
 useEffect(() => {
   (async () => {
     try {
@@ -140,7 +132,7 @@ useEffect(() => {
                 date       : appt.dateTimeStart,
                 appointment: appointmentId,
                 type       : "group",
-                note       : PLACEHOLDER_VISIT,
+                note       : "",
                 aiInsights : [],
                 activities : [],
               };
@@ -225,7 +217,7 @@ useEffect(() => {
                   v => String(v.appointment) === String(appointmentId)
                 );
 
-    return (row?.note ?? "").trim() || PLACEHOLDER_VISIT;
+    return (row?.note ?? "");
   };
   /* ---------- markdown → html side-effect ---------- */
   useEffect(() => {

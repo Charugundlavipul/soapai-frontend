@@ -58,6 +58,7 @@ export default function VisitNoteEditor({
             className="w-full border rounded p-2 text-sm mb-2"
             value={text}
             onChange={e => setText(e.target.value)}
+            placeholder="Type the visit note here…"
           />
           <div className="flex justify-end gap-2">
             <button
@@ -77,9 +78,13 @@ export default function VisitNoteEditor({
         </>
       ) : (
         <>
-          {text.split("\n").map((ln, i) => (
-            <p key={i}>{ln.replace(/^•\s*/, "• ")}</p>
-          ))}
+             {text.trim().length
+     ? text.split("\n").map((ln, i) => (
+         <p key={i}>{ln.replace(/^•\s*/, "• ")}</p>
+       ))
+     : <p className="italic text-gray-400">
+         Type the visit note here…
+       </p>}
           <button
             onClick={() => setEditing(true)}
             className="mt-2 text-xs underline text-primary"

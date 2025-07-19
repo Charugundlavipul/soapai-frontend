@@ -15,6 +15,7 @@ import {
   ThumbsDown,
   Paperclip,
   Mic2,
+  X
 } from "lucide-react";
 
 import ReactPlayer from "react-player";
@@ -43,7 +44,7 @@ export default function SessionReview() {
   const [showTx     , setShowTx     ] = useState(false);
   const [showNewGoal, setShowNewGoal] = useState(false);
   const [showPicker , setShowPicker ] = useState(false);
-
+  const fileInputRef = useRef(null);
   /* ─── fetch video + profile ─── */
   useEffect(() => { getVideo(id).then(r => setVideo(r.data)); }, [id]);
   useEffect(() => { getProfile().then(r => setUser(r.data));  }, []);
@@ -100,24 +101,94 @@ export default function SessionReview() {
   /* speech-to-text */
   const [listening, setListening] = useState(false);
   const recRef = useRef(null);
-  const toggleMic = () => {
-    if (!("webkitSpeechRecognition" in window)) return alert("Speech-to-text not supported");
-    if (!recRef.current) {
-      const R = new window.webkitSpeechRecognition();
-      R.lang="en-US"; R.continuous=true; R.interimResults=false;
-      R.onresult = e => setDraft(d => `${d}${d?" ":""}${e.results[0][0].transcript}`);
-      recRef.current = R;
-    }
-    listening ? recRef.current.stop() : recRef.current.start();
-    setListening(!listening);
-  };
+const toggleMic = () => {
+  if (!("webkitSpeechRecognition" in window)) return alert("Speech-to-text not supported");
+
+  if (!recRef.current) {
+    const R = new window.webkitSpeechRecognition();
+    R.lang = "en-US";
+    R.continuous = true;
+    R.interimResults = false;
+
+    R.onresult = e => {
+      let transcript = "";
+      for (let i = e.resultIndex; i < e.results.length; ++i) {
+        if (e.results[i].isFinal) {
+          transcript += e.results[i][0].transcript;
+        }
+      }
+      setDraft(d => `${d}${d ? " " : ""}${transcript.trim()}`);
+    };
+
+    recRef.current = R;
+  }
+
+  listening ? recRef.current.stop() : recRef.current.start();
+  setListening(!listening);
+};
+/* ─── chat-tool buttons ─── */
+
+/**
+ * Speak the most recent assistant message using the Web Speech API
+ */
+const speakLastAssistant = () => {
+  const lastAssistant = [...msgs].reverse().find(m => m.role === "assistant");
+  if (!lastAssistant) return;
+
+  const utter = new SpeechSynthesisUtterance(lastAssistant.content);
+  utter.lang = "en-US";
+  window.speechSynthesis.cancel();      // stop any ongoing speech
+  window.speechSynthesis.speak(utter);  // speak the new text
+};
+
+/* ─── attachment helpers ─── */
+const handleFiles = e => {
+  const picked = Array.from(e.target.files);
+  setFiles(prev => [...prev, ...picked]);
+  e.target.value = "";         // reset so the same file can be chosen again
+};
+const removeFile = idx => setFiles(prev => prev.filter((_, i) => i !== idx));
+
+/**
+ * Re-ask the model for a fresh answer to the last user message.
+ * – removes the previous assistant reply
+ * – calls chatLLM again with the same history
+ */
+const regenerateLastAnswer = async () => {
+  const lastUserIdx = [...msgs]
+    .reverse()
+    .findIndex(m => m.role === "user");
+  if (lastUserIdx === -1) return;               // nothing to redo
+
+  // strip everything after (and incl.) the last user message
+  const cutIdx = msgs.length - 1 - lastUserIdx;
+  const history = msgs.slice(0, cutIdx + 1);    // keep up to last user msg
+  setMsgs(history);                             // remove old assistant reply
+
+  const body = { messages: history };
+  try {
+    const { data } = await chatLLM(body);
+    setMsgs(m => [
+      ...m,
+      { role: "assistant", content: data.reply, time: new Date() },
+    ]);
+  } catch (e) {
+    alert("Failed to regenerate response");
+  }
+};
+
 
   /* send chat */
   const doSend = async e => {
     e?.preventDefault();
     if (!draft.trim() && !files.length) return;
+    const fileMeta = files.map(f => ({
+      name: f.name,
+      type: f.type,
+      size: f.size
+    }));
 
-    const userMsg = { role:"user", content:draft, time:new Date(), files };
+    const userMsg = { role:"user", content:draft, time:new Date(), files:fileMeta };
     setMsgs(m => [...m, userMsg]);
     setDraft(""); setFiles([]);
 
@@ -262,15 +333,49 @@ export default function SessionReview() {
             )}
             <div ref={chatEndRef}/>
             <div className="flex gap-4 text-gray-500 pt-2 pb-2">
-              <Volume2  className="w-5 h-5 hover:text-primary cursor-pointer"/>
-              <RefreshCcw className="w-5 h-5 hover:text-primary cursor-pointer"/>
-              <ThumbsDown className="w-5 h-5 hover:text-primary cursor-pointer"/>
-            </div>
+            <Volume2
+              className="w-5 h-5 hover:text-primary cursor-pointer"
+              onClick={speakLastAssistant}
+              title="Read aloud"
+            />
+            <RefreshCcw
+              className="w-5 h-5 hover:text-primary cursor-pointer"
+              onClick={regenerateLastAnswer}
+              title="Regenerate answer"
+            />
+            {/* Hide for now; flip the flag if you want it back */}
+            {/* <ThumbsDown className="w-5 h-5 hover:text-primary cursor-pointer"/> */}
           </div>
 
+          </div>
+          
+          
+          {files.length > 0 && (
+              <div className="px-6 pb-2">
+                <p className="text-xs text-gray-500 mb-1">Attachments:</p>
+                <ul className="flex flex-wrap gap-2">
+                  {files.map((f, i) => (
+                    <li
+                      key={i}
+                      className="flex items-center gap-1 bg-white border rounded px-2 py-1 text-xs max-w-[140px]"
+                    >
+                      <span className="truncate">{f.name}</span>
+                      <X
+                        className="w-3 h-3 cursor-pointer"
+                        onClick={() => removeFile(i)}
+                      />
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
           <form onSubmit={doSend} className="border-t p-4 flex items-center gap-3 bg-[#FAF8FF]">
-            <Paperclip className="w-5 h-5 text-gray-400 cursor-pointer" onClick={()=>document.getElementById("fileInput").click()}/>
-            <input id="fileInput" type="file" multiple hidden onChange={e=>setFiles([...files, ...Array.from(e.target.files)])}/>
+            <Paperclip className="w-5 h-5 text-gray-400 cursor-pointer" onClick={() => fileInputRef.current?.click()}
+              title="Attach files"
+            />
+
+            <input type="file" multiple hidden ref={fileInputRef} onChange={handleFiles} />
 
             <input value={draft} onChange={e=>setDraft(e.target.value)} placeholder="Message to SOAP…"
                    className="flex-1 border rounded-full px-3 py-2 bg-white outline-none focus:ring-2 focus:ring-primary"/>

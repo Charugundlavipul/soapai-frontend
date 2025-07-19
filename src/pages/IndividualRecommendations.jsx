@@ -17,19 +17,18 @@ const api = axios.create({
 });
 
 function stgForAppt(patient, appointmentId) {
-  return (
-    patient.stgs?.find(s => String(s.appointment) === String(appointmentId))
-      ?.text ?? ""
-  );
+  return patient.stgs?.find(
+    (s) => String(s.appointment) === String(appointmentId)
+  ) || null;
 }
 
 
 
 /* ───── placeholders ───── */
-const PLACEHOLDER_VISIT_NOTE = `Patient struggled with Pronouncing words ending with /s and /es`.trim();
+const PLACEHOLDER_VISIT_NOTE = "";
 
 const PLACEHOLDER_AI_INSIGHTS = [
-  { time:"11:00 - 11:10", text:"Patient identified rhymes 9/10 times.", tag:"Phonological Awareness", color:"bg-green-100 text-green-800" },
+  { time:"11:00 - 11:10", text:"Student identified rhymes 9/10 times.", tag:"Phonological Awareness", color:"bg-green-100 text-green-800" },
   { time:"11:11 - 11:15", text:"Average utterance length increased to 7 words.", tag:"Fluency Improvement",  color:"bg-blue-100 text-blue-800" }
 ];
 
@@ -46,7 +45,7 @@ export default function IndividualRecommendations() {
   const [client   , setClient]   = useState(null);
   const [loading  , setLoading]  = useState(true);
   const [error    , setError]    = useState(false);
-  const [visitNote, setVisitNote]= useState(PLACEHOLDER_VISIT_NOTE);
+  const [visitNote, setVisitNote]= useState("");
 
   /* activity / ui */
   const [activities , setActivities]  = useState([]);
@@ -59,8 +58,10 @@ export default function IndividualRecommendations() {
 
   /* appointment meta */
   const [apptStart, setApptStart] = useState(null);
-  const stgText = client ? stgForAppt(client, appointmentId) : "";
-  
+  const stgEntry = client ? stgForAppt(client, appointmentId) : null;
+  const stgText  = stgEntry?.text ?? "";
+  const stgInterventions = stgEntry?.interventions ?? [];
+
 
   /* ──────────────────────────────────────────
      1️⃣  Load patient + ensure placeholder visit

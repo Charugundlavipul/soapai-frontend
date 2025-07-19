@@ -1,14 +1,15 @@
-/*  client/src/components/VisitNotes.jsx  */
 /* ────────────────────────────────────────────────────────────
-   Unified Visit-Notes + Short-Term-Goal editor (prettier)
+   Unified Visit-Notes + Short-Term-Goal editor  (with dropdown
+   interventions list)
 ────────────────────────────────────────────────────────────── */
 import { useState } from "react";
-import PropTypes    from "prop-types";
+import PropTypes     from "prop-types";
 import { Sparkles, PencilLine, X, Check } from "lucide-react";
 import VisitNoteEditor from "./VisitNoteEditor";
 
-const stgForAppt = (p, apptId) =>
-  p.stgs?.find((s) => String(s.appointment) === String(apptId))?.text ?? "";
+/* helper: return the *whole* ST-goal object (or null) */
+const stgEntryForAppt = (p, apptId) =>
+  p.stgs?.find(s => String(s.appointment) === String(apptId)) ?? null;
 
 export default function VisitNotes({
   patients,
@@ -25,8 +26,10 @@ export default function VisitNotes({
 
   const body = (
     <div className="space-y-6">
-      {patients.map((p) => {
-        const stgText = stgForAppt(p, appointmentId);
+      {patients.map(p => {
+        const entry   = stgEntryForAppt(p, appointmentId);
+        const stgText = entry?.text ?? "";
+        const ivs     = entry?.interventions ?? [];
         const inEdit  = editingId === p._id;
 
         return (
@@ -37,7 +40,7 @@ export default function VisitNotes({
             {/* patient name */}
             <h5 className="font-semibold text-primary">{p.name}</h5>
 
-            {/* Short-Term Goal */}
+            {/* ─── Short-Term Goal ─── */}
             <div className="space-y-2">
               <h6 className="text-xs font-semibold text-gray-500 uppercase">
                 Short-Term Goal
@@ -49,7 +52,7 @@ export default function VisitNotes({
                     rows={3}
                     className="w-full border rounded p-2 text-sm"
                     value={draft}
-                    onChange={(e) => setDraft(e.target.value)}
+                    onChange={e => setDraft(e.target.value)}
                   />
                   <div className="flex justify-end gap-2">
                     <button
@@ -71,8 +74,12 @@ export default function VisitNotes({
                 </>
               ) : (
                 <div className="flex items-start justify-between">
-                  <p className="text-sm max-w-[75%] break-words whitespace-pre-line">
-                    {stgText || "—"}
+                  <p
+                    className={`text-sm max-w-[75%] break-words whitespace-pre-line ${
+                      stgText ? "" : "italic text-gray-400"
+                    }`}
+                  >
+                    {stgText || "Generate a short-term goal for this patient."}
                   </p>
 
                   <div className="flex items-center gap-2">
@@ -101,9 +108,33 @@ export default function VisitNotes({
                   </div>
                 </div>
               )}
+
+              {/* ▼ interventions dropdown (only if we have any) */}
+              {ivs.length > 0 && !inEdit && (
+                <details className="mt-2">
+                  <summary className="cursor-pointer text-sm text-primary underline">
+                    View recommended interventions ({ivs.length})
+                  </summary>
+                  <ul className="mt-2 space-y-2">
+                    {ivs.map((iv, idx) => (
+                      <li
+                        key={idx}
+                        className="border rounded p-2 bg-gray-50 text-sm space-y-1"
+                      >
+                        <p className="font-medium">{iv.name}</p>
+                        {iv.description && (
+                          <p className="text-xs text-gray-600">
+                            {iv.description}
+                          </p>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                </details>
+              )}
             </div>
 
-            {/* Visit Note */}
+            {/* ─── Visit Note ─── */}
             <div className="space-y-1">
               <h6 className="text-xs font-semibold text-gray-500 uppercase">
                 Visit Note
@@ -112,7 +143,7 @@ export default function VisitNotes({
                 patientId={p._id}
                 appointmentId={appointmentId}
                 initialNote={noteOf(p._id)}
-                onSaved={(txt) => onSave(p._id, txt)}
+                onSaved={txt => onSave(p._id, txt)}
               />
             </div>
           </section>
@@ -122,12 +153,8 @@ export default function VisitNotes({
   );
 
   return wrap ? (
-    <div
-      className={`bg-[#F5F4FB] rounded-2xl p-6 shadow-sm ${className}`}
-    >
-      <h4 className="text-xl font-semibold text-gray-800 mb-5">
-        Visit Notes
-      </h4>
+    <div className={`bg-[#F5F4FB] rounded-2xl p-6 shadow-sm ${className}`}>
+      <h4 className="text-xl font-semibold text-gray-800 mb-5">Visit Notes</h4>
       {body}
     </div>
   ) : (

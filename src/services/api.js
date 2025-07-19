@@ -45,7 +45,26 @@ export const patchVideoGoals = (id, body) =>
   api.patch(`/videos/${id}/goals`, body);
 
 // src/services/api.js
-export const chatLLM = body => api.post('/chat', body);
+// src/services/api.js  (or wherever chatLLM lives)
+
+//  src/services/api.js
+export const chatLLM = body => {
+  if (body instanceof FormData) {
+    // Use raw Axios to bypass the global default
+    return axios.post("http://localhost:4000/api/chat", body, {
+      headers: {
+        Authorization: `Bearer ${localStorage.getItem("jwt")}`,
+        // let browser auto-set correct boundary
+        'Content-Type': undefined,
+      },
+    });
+  }
+  // fallback to regular JSON via global instance
+  return api.post("/chat", body);
+};
+
+
+
 export const getVideo = id => api.get(`/videos/${id}`);
 export const getTranscript = id => api.get(`/videos/${id}/transcript`);
 export const getPatient = (id) => api.get(`/clients/${id}`);
