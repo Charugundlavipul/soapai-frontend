@@ -5,11 +5,9 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="b1cc2c70-f582-4a34-bfe5-b31e4eabfe3a" name="Changes" comment="">
-      <change afterPath="$PROJECT_DIR$/src/components/single-select-dropdown.jsx" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/components/search-dropdown.js" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/components/ActivityGenerator.jsx" beforeDir="false" afterPath="$PROJECT_DIR$/src/components/ActivityGenerator.jsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/modals/GoalPickerModal.jsx" beforeDir="false" afterPath="$PROJECT_DIR$/src/modals/GoalPickerModal.jsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/pages/EditClientPage.jsx" beforeDir="false" afterPath="$PROJECT_DIR$/src/pages/EditClientPage.jsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/modals/NewGroupModal.jsx" beforeDir="false" afterPath="$PROJECT_DIR$/src/modals/NewGroupModal.jsx" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -20,6 +18,7 @@
     <option name="RECENT_TEMPLATES">
       <list>
         <option value="JSX File" />
+        <option value="JavaScript File" />
       </list>
     </option>
   </component>
@@ -43,7 +42,7 @@
     &quot;ModuleVcsDetector.initialDetectionPerformed&quot;: &quot;true&quot;,
     &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
     &quot;SHARE_PROJECT_CONFIGURATION_FILES&quot;: &quot;true&quot;,
-    &quot;git-widget-placeholder&quot;: &quot;main&quot;,
+    &quot;git-widget-placeholder&quot;: &quot;rances&quot;,
     &quot;junie.onboarding.icon.badge.shown&quot;: &quot;true&quot;,
     &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
     &quot;node.js.selected.package.eslint&quot;: &quot;(autodetect)&quot;,
@@ -84,6 +83,7 @@
       <workItem from="1749757131628" duration="39629000" />
       <workItem from="1751748451187" duration="10041000" />
       <workItem from="1751922698260" duration="5178000" />
+      <workItem from="1753044632980" duration="3818000" />
     </task>
     <servers />
   </component>
