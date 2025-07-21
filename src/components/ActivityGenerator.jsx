@@ -1,17 +1,19 @@
 "use client"
-
+import LiveMarkdownEditor from "../components/LiveMarkdownEditor";
 import { useState, useEffect, useRef, useCallback, useMemo } from "react"
 import PropTypes from "prop-types"
 import { marked } from "marked"
 import jsPDF from "jspdf"
-import html2canvas from "html2canvas"
 import qs from "qs"
 import AccordionRow from "./AccordionRow"
 import MultiSelectDropdown from "./multi-select-dropdown"
 import SingleSelectDropdown from "./single-select-dropdown"
 import SavingToast from "../components/savingToast"
 import axios from "axios"
+import MarkdownToPDF from "../components/MarkdownToPDF"
 import { Users, Target, Clock, Edit, Trash2, AlertTriangle } from "lucide-react"
+import html2pdf from "html2pdf.js"
+
 
 const api = axios.create({
   baseURL: "http://localhost:4000/api",
@@ -36,6 +38,46 @@ const parseMarkdownToHTML = (markdown) => {
     return markdown
   }
 }
+
+const PDF_PROSE_CSS = `
+<style>
+/* ---------- printable area ---------- */
+.pdf-page{
+  /* Full page width but paddings become your “margins” */
+  width:595pt;               /* exact width of A4/Letter in jsPDF */
+  padding:40pt;              /* 40 pt on all sides  ≈ 0.56" margin */
+  box-sizing:border-box;     /* include padding in the width calc  */
+
+  /* handle long words / explicit line breaks */
+  overflow-wrap:anywhere;
+  white-space:pre-wrap;
+  font-family:Helvetica,Arial,sans-serif;
+  font-size:12pt;
+  line-height:1.35;
+}
+
+/* ---------- typography ---------- */
+h1{font-size:24pt;font-weight:700;margin:0 0 8pt 0;}
+h2{font-size:18pt;font-weight:700;margin:12pt 0 6pt 0;}
+h3{font-size:14pt;font-weight:600;margin:10pt 0 4pt 0;}
+h4{font-size:12pt;font-weight:600;margin:8pt 0 4pt 0;}
+
+p{margin:4pt 0;}
+
+ul,ol{margin:6pt 0 6pt 1.2em;padding-left:0;}
+li{margin:0 0 4pt 0;}
+
+strong{font-weight:700;}
+em{font-style:italic;}
+
+blockquote{
+  border-left:4pt solid #ccc;padding-left:6pt;margin:6pt 0;
+  font-style:italic;color:#555;
+}
+</style>`;
+
+
+
 
 // Helper functions
 const todayISO = () => new Date().toISOString()
@@ -67,73 +109,6 @@ class RequestDeduplicator {
 
 const requestDeduplicator = new RequestDeduplicator()
 
-// Live Markdown Editor Component
-function LiveMarkdownEditor({ markdown, onChange, className = "" }) {
-  const editorRef = useRef(null)
-  const [isEditing, setIsEditing] = useState(false)
-
-  // Memoize HTML conversion for performance
-  const htmlContent = useMemo(() => parseMarkdownToHTML(markdown), [markdown])
-
-  // Update editor content when markdown changes externally, but not during editing
-  useEffect(() => {
-    if (editorRef.current && !isEditing && markdown) {
-      const newHtml = parseMarkdownToHTML(markdown)
-      if (editorRef.current.innerHTML !== newHtml) {
-        editorRef.current.innerHTML = newHtml
-      }
-    }
-  }, [markdown, isEditing])
-
-  const handleInput = useCallback(
-      (e) => {
-        const newHtml = e.currentTarget.innerHTML
-        // Store the HTML content directly for editing
-        onChange(newHtml)
-      },
-      [onChange],
-  )
-
-  const handleFocus = useCallback(() => {
-    setIsEditing(true)
-  }, [])
-
-  const handleBlur = useCallback(() => {
-    setIsEditing(false)
-  }, [])
-
-  return (
-      <div className={`bg-white rounded-xl border border-gray-200 p-4 ${className}`}>
-        <div
-            ref={editorRef}
-            contentEditable
-            suppressContentEditableWarning
-            className="prose max-w-none min-h-[200px] focus:outline-none text-sm
-  [&>h1]:text-2xl [&>h1]:font-bold [&>h1]:text-gray-900 [&>h1]:mb-4 [&>h1]:mt-6
-  [&>h2]:text-xl [&>h2]:font-bold [&>h2]:text-gray-900 [&>h2]:mb-3 [&>h2]:mt-5
-  [&>h3]:text-lg [&>h3]:font-semibold [&>h3]:text-gray-800 [&>h3]:mb-2 [&>h3]:mt-4
-  [&>h4]:text-base [&>h4]:font-semibold [&>h4]:text-gray-800 [&>h4]:mb-2 [&>h4]:mt-3
-  [&>h5]:text-sm [&>h5]:font-semibold [&>h5]:text-gray-800 [&>h5]:mb-1 [&>h5]:mt-2
-  [&>h6]:text-sm [&>h6]:font-medium [&>h6]:text-gray-700 [&>h6]:mb-1 [&>h6]:mt-2
-  [&>ul]:list-disc [&>ul]:ml-4 [&>ul]:mb-3
-  [&>ol]:list-decimal [&>ol]:ml-4 [&>ol]:mb-3
-  [&>li]:mb-1 [&>li]:leading-relaxed
-  [&>p]:mb-3 [&>p]:leading-relaxed
-  [&>strong]:font-semibold [&>strong]:text-gray-800
-  [&>em]:italic [&>em]:text-gray-700
-  [&>blockquote]:border-l-4 [&>blockquote]:border-gray-300 [&>blockquote]:pl-4 [&>blockquote]:italic [&>blockquote]:text-gray-600 [&>blockquote]:mb-3
-  [&>code]:bg-gray-100 [&>code]:px-1 [&>code]:py-0.5 [&>code]:rounded [&>code]:text-sm [&>code]:font-mono
-  [&>pre]:bg-gray-100 [&>pre]:p-3 [&>pre]:rounded [&>pre]:overflow-x-auto [&>pre]:mb-3
-  [&>hr]:border-gray-300 [&>hr]:my-4"
-            dangerouslySetInnerHTML={{ __html: htmlContent }}
-            onInput={handleInput}
-            onFocus={handleFocus}
-            onBlur={handleBlur}
-            style={{ minHeight: "200px" }}
-        />
-      </div>
-  )
-}
 
 export default function ActivityGenerator({
                                             mode,
@@ -156,8 +131,9 @@ export default function ActivityGenerator({
 
   // Preview stage - using separate states for better reactivity
   const [planMarkdown, setPlanMarkdown] = useState("")
-  const [planHtml, setPlanHtml] = useState("")
+  const planHtmlRef = useRef("");
   const [pendingPayload, setPendingPayload] = useState(null)
+                                            const pdfRef = useRef(null)   // 👈 holds the HTML we’ll print
 
   // Loading states to prevent duplicate requests
   const [loadingStates, setLoadingStates] = useState({
@@ -200,21 +176,17 @@ export default function ActivityGenerator({
       [deduplicateActivities, onActivitiesChange],
   )
 
-  // Live markdown to HTML conversion
   useEffect(() => {
-    if (planMarkdown) {
-      const html = parseMarkdownToHTML(planMarkdown)
-      setPlanHtml(html)
-    } else {
-      setPlanHtml("")
-    }
-  }, [planMarkdown])
+    planHtmlRef.current = planMarkdown
+      ? parseMarkdownToHTML(planMarkdown)
+      : "";
+  }, [planMarkdown]);
 
   // Handle live markdown editing - store HTML directly during editing
   const handleMarkdownChange = useCallback((newHtml) => {
-    setPlanHtml(newHtml)
+    planHtmlRef.current = newHtml
     // Don't convert back to markdown during editing to preserve formatting
-  }, [])
+  }, []);
 
   // Toast helpers
   const showToast = (message, type = "success") => {
@@ -310,6 +282,29 @@ export default function ActivityGenerator({
       setLoadingState("previewPlan", false)
     }
   }
+  function ensureHtml(str = "") {
+    const looksLikeHtml = /<\/?[a-z][\s\S]*>/i.test(str.trim());
+    return looksLikeHtml ? str : parseMarkdownToHTML(str);
+  }
+
+async function elementToPdfBlob(element, filename) {
+  await new Promise(r => requestAnimationFrame(r));
+
+  const doc = new jsPDF({ unit: "pt", format: "a4", orientation: "portrait" });
+
+  await doc.html(element, {
+    x: 28,
+    y: 28,
+    html2canvas: {
+      scale: 0.7,      // 🚀 shrink everything ~30 %
+      useCORS: true
+    }
+  });
+
+  doc.save(filename, { returnPromise: true });
+  return doc.output("blob");
+}
+
 
   // Confirm and save with comprehensive deduplication
   async function confirmAndSave() {
@@ -342,30 +337,30 @@ export default function ActivityGenerator({
       })
 
       // Step 3: Generate and download PDF using current HTML
-      const tempDiv = document.createElement("div")
-      tempDiv.innerHTML = planHtml || parseMarkdownToHTML(planMarkdown)
-      tempDiv.style.padding = "20px"
-      tempDiv.style.fontFamily = "Arial, sans-serif"
-      tempDiv.className = "prose max-w-none"
-      document.body.appendChild(tempDiv)
+      // -----------------------------------------------------------------
+// 3️⃣  generate & download the PDF ---------------------------------
+await new Promise(r => requestAnimationFrame(r));  // wait one paint
 
-      const blob = await htmlToPdfBlob(tempDiv)
-      document.body.removeChild(tempDiv)
+const filename = `activity_${todayISO().slice(0,10)}_${slugify(newActivity.name)}.pdf`;
+const pdfBlob  = await elementToPdfBlob(pdfRef.current, filename);
 
-      const date = todayISO().slice(0, 10)
-      const slug = slugify(newActivity.name)
-      const filename = `material_${date}_${slug}.pdf`
-      downloadBlob(blob, filename)
+// upload for patients (if you still need this step)
+await Promise.allSettled(
+  members.map(id => uploadMaterial(id, pdfBlob, filename, todayISO().slice(0,10), slugify(newActivity.name)))
+);
 
-      // Step 4: Upload materials with deduplication
-      await Promise.allSettled(
-          members.map((patientId) =>
-              uploadMaterial(patientId, blob, filename, date, slug).catch((err) => {
-                console.error(`Failed to upload material for patient ${patientId}:`, err)
-                return null // Don't fail the entire operation
-              }),
-          ),
-      )
+// …then use pdfBlob in uploadMaterial …
+
+
+      // // Step 4: Upload materials with deduplication
+      // await Promise.allSettled(
+      //     members.map((patientId) =>
+      //         uploadMaterial(patientId, pdfBlob, filename, date, slug).catch((err) => {
+      //           console.error(`Failed to upload material for patient ${patientId}:`, err)
+      //           return null // Don't fail the entire operation
+      //         }),
+      //     ),
+      // )
 
       // Step 5: Create visit history entries
       const visit = {
@@ -401,7 +396,7 @@ export default function ActivityGenerator({
 
       // Step 6: Clear preview state
       setPlanMarkdown("")
-      setPlanHtml("")
+      
       setPendingPayload(null)
 
       showToast("Activity saved successfully!")
@@ -420,14 +415,31 @@ export default function ActivityGenerator({
   }
 
   // Helper utilities
-  async function htmlToPdfBlob(node) {
-    const canvas = await html2canvas(node, { scale: 2 })
-    const pdf = new jsPDF({ unit: "pt", format: "a4" })
-    const w = pdf.internal.pageSize.getWidth()
-    const h = (canvas.height * w) / canvas.width
-    pdf.addImage(canvas.toDataURL("image/png"), "PNG", 0, 0, w, h)
-    return pdf.output("blob")
-  }
+function htmlToPdfBlob(node) {
+  return new Promise((resolve) => {
+    const pdf = new jsPDF({
+      unit: "pt",
+      format: "a4",
+      // landscape: true,  // uncomment if you ever need landscape
+    });
+
+    /* The magic: html() keeps real text, honours CSS that is
+       already present in the page (Tailwind, typography plugin, etc.) */
+    pdf.html(node, {
+      // 40 pt ≈ 0.56‑inch page margin
+      margin: 0,
+
+      /* Let html2canvas fetch remote images / fonts if you ever embed them */
+      html2canvas: {
+        scale: 1,
+        useCORS: true,
+        windowWidth: node.scrollWidth,   // 👈 new
+      },
+
+      callback: (doc) => resolve(doc.output("blob")),
+    });
+  });
+}
 
   function downloadBlob(blob, filename) {
     const url = URL.createObjectURL(blob)
@@ -470,7 +482,7 @@ export default function ActivityGenerator({
   const isAnyLoading = Object.values(loadingStates).some(Boolean)
 
   return (
-      <div className="space-y-6">
+      <div className="bg-[#F5F4FB] rounded-2xl p-6 shadow-sm space-y-4">
         {/* Toast Notifications */}
         <SavingToast show={toast.show} message={toast.message} type={toast.type} onClose={hideToast} />
 
@@ -625,7 +637,13 @@ export default function ActivityGenerator({
         {planMarkdown && (
             <div className="space-y-4">
               <h5 className="text-lg font-semibold text-gray-800">Generated Plan</h5>
-              <LiveMarkdownEditor markdown={planMarkdown} onChange={handleMarkdownChange} className="min-h-[300px]" />
+              <div ref={pdfRef} className="bg-white p-3 min-h-[300px] border border-gray-200 rounded-lg">
+                <LiveMarkdownEditor
+                  markdown={planMarkdown}
+                  onChange={handleMarkdownChange}
+                  className="w-full h-full"
+                />
+              </div>
               <div className="flex gap-3">
                 <button
                     onClick={confirmAndSave}
@@ -637,7 +655,7 @@ export default function ActivityGenerator({
                 <button
                     onClick={() => {
                       setPlanMarkdown("")
-                      setPlanHtml("")
+                      
                       setPendingPayload(null)
                     }}
                     disabled={isAnyLoading}
