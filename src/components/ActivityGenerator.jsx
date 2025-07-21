@@ -1,17 +1,19 @@
 "use client"
-
-import { useState, useEffect, useRef, useCallback } from "react"
+import LiveMarkdownEditor from "../components/LiveMarkdownEditor";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react"
 import PropTypes from "prop-types"
 import { marked } from "marked"
 import jsPDF from "jspdf"
-import html2canvas from "html2canvas"
 import qs from "qs"
 import AccordionRow from "./AccordionRow"
 import MultiSelectDropdown from "./multi-select-dropdown"
 import SingleSelectDropdown from "./single-select-dropdown"
 import SavingToast from "../components/savingToast"
 import axios from "axios"
+import MarkdownToPDF from "../components/MarkdownToPDF"
 import { Users, Target, Clock, Edit, Trash2, AlertTriangle } from "lucide-react"
+import html2pdf from "html2pdf.js"
+
 
 const api = axios.create({
   baseURL: "http://localhost:4000/api",
@@ -26,7 +28,7 @@ marked.setOptions({
   mangle: false,
 })
 
-// Helper function to safely parse markdown to HTML
+// Helper function to safely parse markdown to HTML with live updates
 const parseMarkdownToHTML = (markdown) => {
   if (!markdown || typeof markdown !== "string") return ""
   try {
@@ -36,6 +38,46 @@ const parseMarkdownToHTML = (markdown) => {
     return markdown
   }
 }
+
+const PDF_PROSE_CSS = `
+<style>
+/* ---------- printable area ---------- */
+.pdf-page{
+  /* Full page width but paddings become your “margins” */
+  width:595pt;               /* exact width of A4/Letter in jsPDF */
+  padding:40pt;              /* 40 pt on all sides  ≈ 0.56" margin */
+  box-sizing:border-box;     /* include padding in the width calc  */
+
+  /* handle long words / explicit line breaks */
+  overflow-wrap:anywhere;
+  white-space:pre-wrap;
+  font-family:Helvetica,Arial,sans-serif;
+  font-size:12pt;
+  line-height:1.35;
+}
+
+/* ---------- typography ---------- */
+h1{font-size:24pt;font-weight:700;margin:0 0 8pt 0;}
+h2{font-size:18pt;font-weight:700;margin:12pt 0 6pt 0;}
+h3{font-size:14pt;font-weight:600;margin:10pt 0 4pt 0;}
+h4{font-size:12pt;font-weight:600;margin:8pt 0 4pt 0;}
+
+p{margin:4pt 0;}
+
+ul,ol{margin:6pt 0 6pt 1.2em;padding-left:0;}
+li{margin:0 0 4pt 0;}
+
+strong{font-weight:700;}
+em{font-style:italic;}
+
+blockquote{
+  border-left:4pt solid #ccc;padding-left:6pt;margin:6pt 0;
+  font-style:italic;color:#555;
+}
+</style>`;
+
+
+
 
 // Helper functions
 const todayISO = () => new Date().toISOString()
@@ -67,6 +109,7 @@ class RequestDeduplicator {
 
 const requestDeduplicator = new RequestDeduplicator()
 
+
 export default function ActivityGenerator({
                                             mode,
                                             appointmentId,
@@ -86,10 +129,11 @@ export default function ActivityGenerator({
   const [draft, setDraft] = useState(null)
   const [draftMaterials, setDraftMaterials] = useState([])
 
-  // Preview stage
+  // Preview stage - using separate states for better reactivity
   const [planMarkdown, setPlanMarkdown] = useState("")
-  const [htmlDoc, setHtmlDoc] = useState("")
+  const planHtmlRef = useRef("");
   const [pendingPayload, setPendingPayload] = useState(null)
+                                            const pdfRef = useRef(null)   // 👈 holds the HTML we’ll print
 
   // Loading states to prevent duplicate requests
   const [loadingStates, setLoadingStates] = useState({
@@ -98,7 +142,6 @@ export default function ActivityGenerator({
     confirmSave: false,
   })
 
-  const editorRef = useRef(null)
   const [toast, setToast] = useState({ show: false, message: "", type: "success" })
 
   // Deduplication function for activities
@@ -133,14 +176,17 @@ export default function ActivityGenerator({
       [deduplicateActivities, onActivitiesChange],
   )
 
-  // Update HTML editor when plan markdown changes
   useEffect(() => {
-    if (planMarkdown && editorRef.current) {
-      const html = marked.parse(planMarkdown)
-      editorRef.current.innerHTML = html
-      setHtmlDoc(html)
-    }
-  }, [planMarkdown])
+    planHtmlRef.current = planMarkdown
+      ? parseMarkdownToHTML(planMarkdown)
+      : "";
+  }, [planMarkdown]);
+
+  // Handle live markdown editing - store HTML directly during editing
+  const handleMarkdownChange = useCallback((newHtml) => {
+    planHtmlRef.current = newHtml
+    // Don't convert back to markdown during editing to preserve formatting
+  }, []);
 
   // Toast helpers
   const showToast = (message, type = "success") => {
@@ -217,7 +263,9 @@ export default function ActivityGenerator({
           api.post(`/appointments/${appointmentId}/generate-activity`, payload),
       )
 
-      setPlanMarkdown((data.plan || "").trim())
+      // Set markdown content - this will trigger the live HTML conversion
+      const markdownContent = (data.plan || "").trim()
+      setPlanMarkdown(markdownContent)
 
       // Store payload for confirmation (remove preview flag)
       const { preview, ...confirmPayload } = payload
@@ -234,6 +282,29 @@ export default function ActivityGenerator({
       setLoadingState("previewPlan", false)
     }
   }
+  function ensureHtml(str = "") {
+    const looksLikeHtml = /<\/?[a-z][\s\S]*>/i.test(str.trim());
+    return looksLikeHtml ? str : parseMarkdownToHTML(str);
+  }
+
+async function elementToPdfBlob(element, filename) {
+  await new Promise(r => requestAnimationFrame(r));
+
+  const doc = new jsPDF({ unit: "pt", format: "a4", orientation: "portrait" });
+
+  await doc.html(element, {
+    x: 28,
+    y: 28,
+    html2canvas: {
+      scale: 0.7,      // 🚀 shrink everything ~30 %
+      useCORS: true
+    }
+  });
+
+  doc.save(filename, { returnPromise: true });
+  return doc.output("blob");
+}
+
 
   // Confirm and save with comprehensive deduplication
   async function confirmAndSave() {
@@ -265,22 +336,31 @@ export default function ActivityGenerator({
         return [...prevActivities, newActivity]
       })
 
-      // Step 3: Generate and download PDF
-      const blob = await htmlToPdfBlob(editorRef.current)
-      const date = todayISO().slice(0, 10)
-      const slug = slugify(newActivity.name)
-      const filename = `material_${date}_${slug}.pdf`
-      downloadBlob(blob, filename)
+      // Step 3: Generate and download PDF using current HTML
+      // -----------------------------------------------------------------
+// 3️⃣  generate & download the PDF ---------------------------------
+await new Promise(r => requestAnimationFrame(r));  // wait one paint
 
-      // Step 4: Upload materials with deduplication
-      await Promise.allSettled(
-          members.map((patientId) =>
-              uploadMaterial(patientId, blob, filename, date, slug).catch((err) => {
-                console.error(`Failed to upload material for patient ${patientId}:`, err)
-                return null // Don't fail the entire operation
-              }),
-          ),
-      )
+const filename = `activity_${todayISO().slice(0,10)}_${slugify(newActivity.name)}.pdf`;
+const pdfBlob  = await elementToPdfBlob(pdfRef.current, filename);
+
+// upload for patients (if you still need this step)
+await Promise.allSettled(
+  members.map(id => uploadMaterial(id, pdfBlob, filename, todayISO().slice(0,10), slugify(newActivity.name)))
+);
+
+// …then use pdfBlob in uploadMaterial …
+
+
+      // // Step 4: Upload materials with deduplication
+      // await Promise.allSettled(
+      //     members.map((patientId) =>
+      //         uploadMaterial(patientId, pdfBlob, filename, date, slug).catch((err) => {
+      //           console.error(`Failed to upload material for patient ${patientId}:`, err)
+      //           return null // Don't fail the entire operation
+      //         }),
+      //     ),
+      // )
 
       // Step 5: Create visit history entries
       const visit = {
@@ -316,8 +396,8 @@ export default function ActivityGenerator({
 
       // Step 6: Clear preview state
       setPlanMarkdown("")
+      
       setPendingPayload(null)
-      setHtmlDoc("")
 
       showToast("Activity saved successfully!")
     } catch (err) {
@@ -335,14 +415,31 @@ export default function ActivityGenerator({
   }
 
   // Helper utilities
-  async function htmlToPdfBlob(node) {
-    const canvas = await html2canvas(node, { scale: 2 })
-    const pdf = new jsPDF({ unit: "pt", format: "a4" })
-    const w = pdf.internal.pageSize.getWidth()
-    const h = (canvas.height * w) / canvas.width
-    pdf.addImage(canvas.toDataURL("image/png"), "PNG", 0, 0, w, h)
-    return pdf.output("blob")
-  }
+function htmlToPdfBlob(node) {
+  return new Promise((resolve) => {
+    const pdf = new jsPDF({
+      unit: "pt",
+      format: "a4",
+      // landscape: true,  // uncomment if you ever need landscape
+    });
+
+    /* The magic: html() keeps real text, honours CSS that is
+       already present in the page (Tailwind, typography plugin, etc.) */
+    pdf.html(node, {
+      // 40 pt ≈ 0.56‑inch page margin
+      margin: 0,
+
+      /* Let html2canvas fetch remote images / fonts if you ever embed them */
+      html2canvas: {
+        scale: 1,
+        useCORS: true,
+        windowWidth: node.scrollWidth,   // 👈 new
+      },
+
+      callback: (doc) => resolve(doc.output("blob")),
+    });
+  });
+}
 
   function downloadBlob(blob, filename) {
     const url = URL.createObjectURL(blob)
@@ -385,7 +482,7 @@ export default function ActivityGenerator({
   const isAnyLoading = Object.values(loadingStates).some(Boolean)
 
   return (
-      <div className="space-y-6">
+      <div className="bg-[#F5F4FB] rounded-2xl p-6 shadow-sm space-y-4">
         {/* Toast Notifications */}
         <SavingToast show={toast.show} message={toast.message} type={toast.type} onClose={hideToast} />
 
@@ -475,7 +572,7 @@ export default function ActivityGenerator({
         )}
 
         {/* Generate Draft Button */}
-        {!draft && (
+        {!draft && !planMarkdown && (
             <button
                 onClick={generateDraft}
                 disabled={loadingStates.generateDraft || isAnyLoading}
@@ -536,34 +633,44 @@ export default function ActivityGenerator({
             </>
         )}
 
-        {/* Preview & confirm */}
+        {/* Preview & confirm - This section should now render properly */}
         {planMarkdown && (
             <div className="space-y-4">
               <h5 className="text-lg font-semibold text-gray-800">Generated Plan</h5>
-              <div className="bg-white rounded-xl border border-gray-200 p-4">
-                <div
-                    ref={editorRef}
-                    contentEditable
-                    suppressContentEditableWarning
-                    className="prose max-w-none min-h-[200px] focus:outline-none text-sm"
-                    dangerouslySetInnerHTML={{ __html: htmlDoc }}
-                    onInput={(e) => setHtmlDoc(e.currentTarget.innerHTML)}
+              <div ref={pdfRef} className="bg-white p-3 min-h-[300px] border border-gray-200 rounded-lg">
+                <LiveMarkdownEditor
+                  markdown={planMarkdown}
+                  onChange={handleMarkdownChange}
+                  className="w-full h-full"
                 />
               </div>
-              <button
-                  onClick={confirmAndSave}
-                  disabled={loadingStates.confirmSave || isAnyLoading}
-                  className="bg-[#3D298D] text-white px-6 py-3 rounded-xl font-medium hover:bg-[#3D298D]/90 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
-              >
-                {loadingStates.confirmSave ? "Saving…" : "Confirm & Save"}
-              </button>
+              <div className="flex gap-3">
+                <button
+                    onClick={confirmAndSave}
+                    disabled={loadingStates.confirmSave || isAnyLoading}
+                    className="bg-[#3D298D] text-white px-6 py-3 rounded-xl font-medium hover:bg-[#3D298D]/90 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
+                >
+                  {loadingStates.confirmSave ? "Saving…" : "Confirm & Save"}
+                </button>
+                <button
+                    onClick={() => {
+                      setPlanMarkdown("")
+                      
+                      setPendingPayload(null)
+                    }}
+                    disabled={isAnyLoading}
+                    className="px-6 py-3 rounded-xl border border-gray-200 text-gray-700 hover:bg-gray-50 transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
             </div>
         )}
       </div>
   )
 }
 
-// Activity Accordion Component (unchanged but with improved error handling)
+// Activity Accordion Component with improved markdown rendering
 function ActivityAccordion({ act, appointmentId, memberOptions, onUpdated, onDeleted, showToast }) {
   const [open, setOpen] = useState(false)
   const [editing, setEditing] = useState(false)
@@ -575,6 +682,9 @@ function ActivityAccordion({ act, appointmentId, memberOptions, onUpdated, onDel
     description: act.description,
     members: act.members?.map(String) || [],
   })
+
+  // Memoize HTML conversion for better performance
+  const activityHtml = useMemo(() => parseMarkdownToHTML(act.description || ""), [act.description])
 
   const patch = (updates) => setForm((prev) => ({ ...prev, ...updates }))
 
@@ -650,8 +760,20 @@ function ActivityAccordion({ act, appointmentId, memberOptions, onUpdated, onDel
             }
         >
           <div
-              className="prose prose-sm max-w-none text-gray-600 [&>h1]:text-lg [&>h1]:font-semibold [&>h1]:text-gray-800 [&>h1]:mb-3 [&>h2]:text-base [&>h2]:font-semibold [&>h2]:text-gray-800 [&>h2]:mb-2 [&>h3]:text-sm [&>h3]:font-semibold [&>h3]:text-gray-800 [&>h3]:mb-2 [&>ul]:list-disc [&>ul]:ml-4 [&>ol]:list-decimal [&>ol]:ml-4 [&>li]:mb-1 [&>p]:mb-2 [&>strong]:font-semibold [&>strong]:text-gray-800"
-              dangerouslySetInnerHTML={{ __html: parseMarkdownToHTML(act.description || "") }}
+              className="prose prose-sm max-w-none text-gray-600
+  [&>h1]:text-xl [&>h1]:font-bold [&>h1]:text-gray-900 [&>h1]:mb-3 [&>h1]:mt-4
+  [&>h2]:text-lg [&>h2]:font-bold [&>h2]:text-gray-900 [&>h2]:mb-2 [&>h2]:mt-3
+  [&>h3]:text-base [&>h3]:font-semibold [&>h3]:text-gray-800 [&>h3]:mb-2 [&>h3]:mt-3
+  [&>h4]:text-sm [&>h4]:font-semibold [&>h4]:text-gray-800 [&>h4]:mb-1 [&>h4]:mt-2
+  [&>h5]:text-sm [&>h5]:font-medium [&>h5]:text-gray-800 [&>h5]:mb-1 [&>h5]:mt-2
+  [&>h6]:text-xs [&>h6]:font-medium [&>h6]:text-gray-700 [&>h6]:mb-1 [&>h6]:mt-2
+  [&>ul]:list-disc [&>ul]:ml-4 [&>ul]:mb-2
+  [&>ol]:list-decimal [&>ol]:ml-4 [&>ol]:mb-2
+  [&>li]:mb-1 [&>li]:leading-relaxed
+  [&>p]:mb-2 [&>p]:leading-relaxed
+  [&>strong]:font-semibold [&>strong]:text-gray-800
+  [&>em]:italic [&>em]:text-gray-700"
+              dangerouslySetInnerHTML={{ __html: activityHtml }}
           />
         </AccordionRow>
 

@@ -1,0 +1,17 @@
+/* pdfStyles.css */
+.pdf-content {
+  max-width:556pt;             /* letter width minus margins */
+  margin:0 auto;
+  font-family:Helvetica,Arial;
+  font-size:10pt;
+  line-height:1.4;
+  overflow-wrap:break-word;
+  white-space:pre-wrap;
+}
+.pdf-content h1 { font-size:18pt; margin:0.5em 0; }
+.pdf-content h2 { font-size:14pt; margin:0.4em 0; }
+.pdf-content ul,
+.pdf-content ol { margin:0.4em 0 0.4em 1em; }
+.pdf-content li { margin:0.2em 0; }
+.pdf-content strong { font-weight:700; }
+.pdf-content em { font-style:italic; }

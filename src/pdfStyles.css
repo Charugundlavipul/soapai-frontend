@@ -1,0 +1,31 @@
+.pdf-content {
+  /* match a standard letter/A4 page width minus 0.5" margins */
+  max-width: 556pt;   /* 612pt (8.5") – 2×28pt (0.39") margins */
+  margin: 0 auto;
+  
+  /* typography */
+  font-family: Helvetica, Arial, sans-serif;
+  font-size: 10pt;
+  line-height: 1.4;
+  
+  /* wrap long words & respect manual breaks */
+  overflow-wrap: break-word;
+  word-wrap: break-word;
+  white-space: pre-wrap;
+}
+
+/* spacing & sizes */
+.pdf-content h1 { font-size: 18pt; margin: 0.5em 0; }
+.pdf-content h2 { font-size: 14pt; margin: 0.4em 0; }
+.pdf-content h3 { font-size: 12pt; margin: 0.35em 0; }
+
+.pdf-content p  { margin: 0.3em 0; }
+.pdf-content ul,
+.pdf-content ol {
+  margin: 0.4em 0 0.4em 1em;
+}
+.pdf-content li { margin: 0.2em 0; }
+
+/* bold & italic */
+.pdf-content strong { font-weight: 700; }
+.pdf-content em     { font-style: italic; }
