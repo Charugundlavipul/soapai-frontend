@@ -22,6 +22,7 @@ export default function RecordVideo() {
 
   /* ───────── stage: ready | recording | paused | preview ───────── */
   const [stage, setStage] = useState("ready");
+  const [streamReady, setStreamReady] = useState(false);
 
   /* devices */
   const [cams, setCams] = useState([]);
@@ -73,6 +74,7 @@ const ext = "webm";
   /* ───────── build / refresh stream ───────── */
   const buildStream = useCallback(async () => {
     if (!camId || !micId) return;
+    setStreamReady(false);
     if (streamRef.current)
       streamRef.current.getTracks().forEach((t) => t.stop());
 
@@ -82,6 +84,7 @@ const ext = "webm";
     });
     streamRef.current = s;
     if (liveElRef.current) liveElRef.current.srcObject = s;
+    setStreamReady(true); 
   }, [camId, micId]);
 
   /* ask once for permission, then enumerate -– returns cams, mics, defaults */
@@ -119,7 +122,16 @@ async function getDevices() {
 
 
 
-  const startRec = () => {
+  const ensureStream = async () => {
+    if (streamRef.current && streamRef.current.active) return true;
+    await buildStream();
+    return !!streamRef.current;
+    };
+
+    const startRec = async () => {
+    if (!(await ensureStream())) {
+        return alert("Camera / microphone not ready yet.");
+    }
     chunksRef.current = [];
     const rec = new MediaRecorder(streamRef.current, { mimeType: chosenMime });
     rec.ondataavailable = (e) => e.data.size && chunksRef.current.push(e.data);
@@ -241,6 +253,7 @@ const previewVideo = (
             setStage={setStage}
             setVideoURL={setVideoURL}
             buildStream={buildStream}
+            streamReady={streamReady}
           />
         </div>
       </div>
@@ -314,6 +327,7 @@ function ControlCard({
   ext,
   setStage,
   setVideoURL,
+  streamReady,
   buildStream,
 }) {
   return (
@@ -321,6 +335,7 @@ function ControlCard({
       {stage === "ready" && (
         <button
           onClick={startRec}
+          disabled={!streamReady}
           className={`${primaryBtn} flex items-center gap-2 px-6 py-3 rounded-full`}
         >
           <Play className="w-5 h-5" /> Start Recording
