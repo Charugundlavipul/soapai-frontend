@@ -11,8 +11,9 @@ import UploadVideoPage        from './pages/UploadVideo';
 import SessionReview          from './pages/SessionReview';
 import PatientAnalysis from './pages/PatientAnalysis';
 import EditClientPage         from './pages/EditClientPage';
-import RecordSession          from './pages/RecordSession';
+
 import AnnualGoals from './pages/AnnualGoals';
+import RecordVideo            from './pages/RecordVideo';
 import SessionPatientView     from './pages/SessionPatientView';
 
 // ↓ Add this import:
@@ -31,10 +32,11 @@ export default function App() {
           <Route path="/reset-success"            element={<ResetSuccess />} />
           <Route path="/behaviours"               element={<BehaviourBank />} />
           <Route path="/appointments/:id/upload"  element={<UploadVideoPage />} />
-          <Route path="/appointments/:id/record" element={<RecordSession />} />
+          
           <Route path="/videos/:id/review"        element={<SessionReview />} />
           <Route path="/clients/:id/analysis"     element={<PatientAnalysis/>}/>
           <Route path="/clients/:id/edit"         element={<EditClientPage />} />
+          <Route path="/appointments/:id/record" element={<RecordVideo />} />
           <Route path="/annual-goals"             element={<AnnualGoals />} />
           <Route
   path="/appointments/:appointmentId/patient/:patientId"

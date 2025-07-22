@@ -1,7 +1,7 @@
 "use client";
 import { format } from "date-fns";
 import { useEffect, useState, useRef } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate,useLocation  } from "react-router-dom";
 import {
   ChevronDown,
   UploadIcon,
@@ -12,6 +12,7 @@ import {
   Calendar,
   Users,
   FileText,
+  Video
 } from "lucide-react";
 
 import Navbar from "../components/Navbar";
@@ -24,6 +25,7 @@ const primaryBtn =
 export default function UploadVideo() {
   const { id: apptId } = useParams();
   const nav = useNavigate();
+  const { state } = useLocation();
 
   /* ───────────────── appointment meta ───────────────── */
   const [appt, setAppt] = useState(null);
@@ -53,6 +55,10 @@ export default function UploadVideo() {
   const [title, setTitle] = useState("");
   const [file, setFile] = useState(null);
   const [notes, setNotes] = useState("");
+
+  useEffect(() => {
+    if (state?.recordedFile) setFile(state.recordedFile);
+  }, [state]);
 
   /* ───────────────── attendance ───────────────── */
   const [attendance, setAttendance] = useState({}); // { pid:"present"|"absent"|"" }
@@ -200,15 +206,26 @@ export default function UploadVideo() {
             />
 
             {/* Notes card */}
-            <NotesCard notes={notes} setNotes={setNotes} />
+            {/* <NotesCard notes={notes} setNotes={setNotes} /> */}
           </div>
 
           {/* RIGHT column ***************************************************/}
           <div className="col-span-5 sticky top-8">
+
             {!singleAbs && <UploadPane file={file} setFile={setFile} />}
 
             {/* Main action button */}
-            <div className="mt-8 flex justify-center">
+            <div className="mt-8 flex flex-col justify-center items-center space-y-4 align-center">
+              {!singleAbs && (
+                    <button
+                      type="button"
+                      onClick={() => nav(`/appointments/${apptId}/record`)}
+                      className={`${primaryBtn} px-8 py-4 rounded-xl flex items-center gap-3 text-lg font-semibold disabled:opacity-50 disabled:cursor-not-allowed min-w-[400px] justify-center`}
+                    >
+                      <Video className="w-5 h-5" />
+                      Record Video
+                    </button>
+                  )}
               <button
                 type="submit"
                 disabled={
@@ -219,7 +236,7 @@ export default function UploadVideo() {
                       (appt.type === "group" &&
                         !participants.some((p) => attendance[p._id || p] === "present")))
                 }
-                className={`${primaryBtn} px-8 py-4 rounded-xl flex items-center gap-3 text-lg font-semibold disabled:opacity-50 disabled:cursor-not-allowed`}
+                className={`${primaryBtn} px-8 py-4 rounded-xl flex items-center gap-3 text-lg font-semibold disabled:opacity-50 disabled:cursor-not-allowed min-w-[400px] justify-center`}
               >
                 <UploadIcon className="w-5 h-5" />
                 {btnLabel}

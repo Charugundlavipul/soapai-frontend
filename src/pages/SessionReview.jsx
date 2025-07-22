@@ -4,6 +4,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import NewGoalModal   from "../modals/NewGoalModal";
 import GoalPickerModal from "../modals/GoalPickerModal";
 import { getTranscript, chatLLM, getVideo, getProfile } from "../services/api";
+import VideoPlayer from "../components/VideoPlayer";
 
 import axios from "axios";
 import {
@@ -18,7 +19,6 @@ import {
   X
 } from "lucide-react";
 
-import ReactPlayer from "react-player";
 import Navbar      from "../components/Navbar";
 import EmojiBtn    from "../components/EmojiBtn";
 
@@ -217,7 +217,7 @@ const regenerateLastAnswer = async () => {
         {/* LEFT COLUMN */}
         <div className="space-y-6 shrink-0">
           <div className="w-[463px] h-[261px] rounded-lg overflow-hidden">
-            <ReactPlayer url={video.fileUrl} controls width="463" height="261"/>
+            <VideoPlayer src={video.fileUrl} />
           </div>
 
           <div className="bg-[#FAF8FF] rounded-xl p-6 space-y-4 shadow" style={{width:463,height:330}}>

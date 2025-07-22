@@ -193,16 +193,16 @@ useEffect(() => {
     }
   }
 
-  async function saveStg(pid, text) {                    // ⬅︎ NEW
-    await api.patch(`/clients/${pid}/stg`,               // ⬅︎ NEW
-      { appointmentId, text });                          // ⬅︎ NEW
-    const { data: fresh } = await api.get(`/clients/${pid}`); // ⬅︎ NEW
-    setGroup(g => ({                                     // ⬅︎ NEW
-      ...g,                                              // ⬅︎ NEW
-      patients: g.patients.map(p =>                      // ⬅︎ NEW
-        String(p._id) === pid ? fresh : p                // ⬅︎ NEW
-      ),                                                 // ⬅︎ NEW
-    }));                                                 // ⬅︎ NEW
+  async function saveStg(pid, text) {                    
+    await api.patch(`/clients/${pid}/stg`,               
+      { appointmentId, text });                          
+    const { data: fresh } = await api.get(`/clients/${pid}`); 
+    setGroup(g => ({                                     
+      ...g,                                              
+      patients: g.patients.map(p =>                      
+        String(p._id) === pid ? fresh : p                
+      ),                                                 
+    }));                                                 
   } 
 
   /* ---------- utility ---------- */
