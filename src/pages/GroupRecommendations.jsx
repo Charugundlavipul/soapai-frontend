@@ -67,22 +67,13 @@ export default function GroupRecommendations() {
 
   const [activeTab, setActiveTab]       = useState("visitNotes");
   const [showPicker, setShowPicker]     = useState(false);
-  const [showModal, setShowModal]       = useState(false);
 
   const [video, setVideo]               = useState(location.state?.video || null);
   const initialGoals =
     video?.goals?.map(g => (typeof g === "string" ? g : g.name)) || [];
   const [selectedGoals, setSelectedGoals] = useState(initialGoals);
 
-  const [activityName, setActivityName]   = useState("");
-  const [selectedMembers, setSelectedMembers] = useState([]);
-  const [duration, setDuration]           = useState("30 Minutes");
 
-  /* activity-generator bits */
-  const [idea, setIdea]                 = useState("");
-  const [draft, setDraft]               = useState(null);         // { description, materials }
-  const [selectedMats, setSelectedMats] = useState([]);
-  const [draftName, setDraftName]       = useState("");
   const [activities, setActivities]     = useState([]);
   const [busy, setBusy]                 = useState(false);
   const [planMD, setPlanMD]             = useState("");
@@ -286,7 +277,7 @@ useEffect(() => {
               mode="group"
               appointmentId={appointmentId}
               patients={group.patients}
-              allGoals={group.goals || []}
+              allGoals={selectedGoals || []}
               initialActivities={activities}
               onActivitiesChange={setActivities}
             />

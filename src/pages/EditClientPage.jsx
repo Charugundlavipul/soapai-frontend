@@ -13,7 +13,7 @@ import api from "../services/api";
 import Avatar from "../components/Avatar";
 import Navbar from "../components/Navbar";
 import EditClientProfileModal from "../modals/EditClientProfileModal";
-import GoalPickerModal from "../modals/GoalPickerModal"; // Changed from EditGoalsModal
+import EditClientGoalsModal from "../modals/EditClientGoalsModal";
 import SavingToast from "../components/savingToast";
 import CustomDatePicker from "../components/CustomDatePicker"; // Added CustomDatePicker import
 
@@ -144,7 +144,7 @@ export default function EditClientPage() {
         }
     }
 
-    // Removed saveGoals function as GoalPickerModal handles saving internally
+    
 
     /* ───── guards ───── */
     if (loading)
@@ -188,21 +188,16 @@ export default function EditClientPage() {
                 onSave={saveProfile}
                 groups={groups}
             />
-            <GoalPickerModal // Changed from EditGoalsModal
+            <EditClientGoalsModal
                 open={showGoals}
                 onClose={() => setShowGoals(false)}
-                video={{ // GoalPickerModal expects a 'video' prop, adapting it for client goals
-                    _id: client._id,
-                    appointment: client.lastAppointmentId || "individual-session", // Provide a dummy appointment type if none exists
-                    goals: client.goals || [],
-                }}
-                onSaved={(updatedData) => { // GoalPickerModal's onSaved callback
-                    setClient((c) => ({ ...c, goals: updatedData.goals }));
-                    setShowGoals(false);
-                    setToast({ show: true, msg: "Goals updated!", type: "success" });
-                }}
+                clientId={client._id}
+                current={client.goals}
+                onSaved={(newGoals) => {
+                setClient(c => ({ ...c, goals:newGoals }));
+                setToast({ show:true, msg:"Goals updated!", type:"success" });
+              }}
             />
-
             <main className="flex-1 p-6 max-w-7xl mx-auto space-y-6">
                 {/* header */}
                 <div className="flex items-center gap-3 justify-center mb-6">

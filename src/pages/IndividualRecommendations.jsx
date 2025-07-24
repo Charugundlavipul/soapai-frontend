@@ -7,7 +7,6 @@ import GoalPickerModal     from "../modals/GoalPickerModal";
 import { ChevronLeft, ClipboardList, Zap, Sparkle,Sparkles } from "lucide-react";
 import Avatar              from "../components/Avatar";
 import ActivityGenerator   from "../components/ActivityGenerator";
-import VisitNoteEditor     from "../components/VisitNoteEditor";
 import VisitNotes          from "../components/VisitNotes";
 
 /* ───── axios helper ───── */
@@ -53,14 +52,13 @@ export default function IndividualRecommendations() {
   const [showPicker , setShowPicker]  = useState(false);
   const [selectedGoals, setSelectedGoals] = useState([]);
   const [planMD, setPlanMD] = useState("");
-  const editorRef  = useRef(null);
   const [busy, setBusy] = useState(false);
 
   /* appointment meta */
   const [apptStart, setApptStart] = useState(null);
   const stgEntry = client ? stgForAppt(client, appointmentId) : null;
   const stgText  = stgEntry?.text ?? "";
-  const stgInterventions = stgEntry?.interventions ?? [];
+
 
 
   /* ──────────────────────────────────────────
@@ -214,7 +212,7 @@ useEffect(() => {
           client={client}
           activities={activities}
           setActivities={setActivities}
-          editorRef={editorRef}
+          
           planMD={planMD}
           setPlanMD={setPlanMD}
           busy={busy}
@@ -382,6 +380,7 @@ function Shell({ children }) {
 function RightPanel({
   activeTab,
   setActiveTab,
+  selectedGoals,
   aiInsights,
   visitNote,
   setVisitNote,
@@ -428,7 +427,7 @@ function RightPanel({
           mode="individual"
           appointmentId={appointmentId}
           patients={[client]}
-          allGoals={client.goals || []}
+          allGoals={selectedGoals || []}
           initialActivities={activities}
           onActivitiesChange={setActivities}
         />

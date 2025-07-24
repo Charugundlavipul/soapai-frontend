@@ -121,6 +121,8 @@ export default function Dashboard() {
         }, {})
   }, [appts, groups, qGroup])
 
+  const refreshAppointments = () =>
+    api.get("/appointments").then(r => setAppts(r.data))
   /* ─── Appointments for the selected day ──────────── */
   const dayAppts = useMemo(() => {
     const key = format(selectedDay, "yyyy-MM-dd")
@@ -181,12 +183,15 @@ export default function Dashboard() {
 
   const handleGroupCreated = (group) => {
     setGroups((prev) => [group, ...prev])
+    refreshAppointments()
     showSuccessToast(`Group session "${group.name}" created successfully!`)
   }
 
   const handleAppointmentCreated = (appointment) => {
-    setAppts((prev) => [appointment, ...prev])
-    setSelectedDay(new Date(appointment.dateTimeStart))
+    api.get(`/appointments/${appointment._id}`).then(({data: full}) => {
+      setAppts(prev => [full, ...prev])
+      setSelectedDay(new Date(full.dateTimeStart))
+    })
     showSuccessToast("Appointment created successfully!")
   }
 

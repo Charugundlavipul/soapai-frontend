@@ -44,9 +44,6 @@ export const uploadVideo = (appointmentId, formData) =>
 export const patchVideoGoals = (id, body) =>
   api.patch(`/videos/${id}/goals`, body);
 
-// src/services/api.js
-// src/services/api.js  (or wherever chatLLM lives)
-
 //  src/services/api.js
 export const chatLLM = body => {
   if (body instanceof FormData) {

@@ -49,8 +49,6 @@ export default function GoalPickerModal({ open, onClose, video, onSaved }) {
 
       /* 1️⃣  Figure out which goals are *eligible* for this video */
       try {
-        // For client profile editing, we'll allow all goals from categories
-        // or if appointment is provided, use the original logic
         if (video.appointment && video.appointment !== "individual-session") {
           const { data: appt } = await api.get(`/appointments/${video.appointment}`)
 
@@ -130,7 +128,7 @@ export default function GoalPickerModal({ open, onClose, video, onSaved }) {
     setBusy(true)
     try {
       // For client profile editing, update the client's goals directly
-      const { data } = await api.patch(`/clients/${video._id}/goals`, { // Changed API endpoint
+      const { data } = await api.patch(`/videos/${video._id}/goals`, { // Changed API endpoint
         goals: sel,
       })
       onSaved({ ...video, goals: sel }) // parent does setClient(…)
