@@ -522,13 +522,25 @@ async function elementToPdfBlob(element, filename) {
                 </div>
               </div>
 
+              <div className="flex gap-3">
               <button
-                  onClick={previewPlan}
-                  disabled={!draftMaterials.length || loadingStates.previewPlan || isAnyLoading}
-                  className="bg-[#3D298D] text-white rounded-xl px-6 py-3 font-medium hover:bg-[#3D298D]/90 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
+                onClick={previewPlan}
+                disabled={!draftMaterials.length || loadingStates.previewPlan || isAnyLoading}
+                className="bg-[#3D298D] text-white rounded-xl px-6 py-3 font-medium hover:bg-[#3D298D]/90 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
               >
                 {loadingStates.previewPlan ? "Creating…" : "Generate With Selected Materials"}
               </button>
+              <button
+                onClick={() => {
+                  setDraft(null)
+                  setDraftMaterials([])
+                }}
+                disabled={isAnyLoading}
+                className="px-6 py-3 rounded-xl border border-gray-200 text-gray-700 hover:bg-gray-50 transition-colors"
+              >
+                Back
+              </button>
+            </div>
             </>
         )}
 
