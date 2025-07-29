@@ -1,6 +1,7 @@
 // src/components/ProfileMenu.jsx
 import { useState, useEffect, useRef } from 'react';
 import { logout as apiLogout, getProfile } from '../services/api';
+import Avatar from './Avatar'; // Assuming you have an Avatar component
 import {
   UserCircleIcon,
   ArrowRightOnRectangleIcon,
@@ -30,9 +31,11 @@ export default function ProfileMenu({ onProfile }) {
     <div className="relative" ref={ref}>
       {/* avatar + name + email act as the button */}
       <button onClick={() => setOpen(o => !o)} className="flex items-center gap-3">
-        <img
-          src={me.avatarUrl || '/assets/avatar.png'}
-          className="h-9 w-9 rounded-full object-cover"
+        
+        <Avatar
+          url={me.avatarUrl}
+          name={me.name}
+          className="w-9 h-9"
         />
         <div className="hidden sm:block text-left">
           <p className="font-medium leading-none max-w-[25ch] truncate">{me.name}</p>
@@ -45,9 +48,11 @@ export default function ProfileMenu({ onProfile }) {
         <div className="absolute right-0 mt-3 w-72 bg-white rounded-xl shadow-xl z-50 p-4 space-y-4">
           {/* header */}
           <div className="flex items-center gap-3">
-            <img
-              src={me.avatarUrl || '/assets/avatar.png'}
-              className="h-12 w-12 rounded-full object-cover"
+            
+            <Avatar
+              url={me.avatarUrl}
+              name={me.name}
+              className="h-12 w-12"
             />
             <div className="min-w-0">
                 <p className="font-semibold leading-5 break-words">{me.name}</p>

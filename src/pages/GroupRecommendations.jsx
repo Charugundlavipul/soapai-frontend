@@ -8,13 +8,14 @@ import VisitNoteEditor   from "../components/VisitNoteEditor";
 import GoalPickerModal   from "../modals/GoalPickerModal";
 import ActivityGenerator from "../components/ActivityGenerator";
 import VisitNotes        from "../components/VisitNotes";
+import ProgressTrackerVisit from "../components/ProgressTrackerVisit";
 
 import {
   ChevronLeft,
   ClipboardList,
   Users,
   Sparkle,   // for the tab bar
-  Sparkles   // for the “AI Goal” button
+  ChartLine  
 } from "lucide-react";
 
 import { marked }    from "marked";
@@ -228,10 +229,20 @@ useEffect(() => {
         open={showPicker}
         onClose={() => setShowPicker(false)}
         video={video}
-        onSaved={(updated) => {
+        onSaved={async (updated) => {
           setVideo(updated);
           const names = updated.goals.map(g => (typeof g === "string" ? g : g.name));
           setSelectedGoals(names);
+          try {
+            const { data: freshGrp } = await api.get(`/groups/${group._id}`);
+            const fullPatients = await Promise.all(
+              freshGrp.patients.map(p =>
+                api.get(`/clients/${p._id}`).then(r => r.data)
+              )
+            );
+            freshGrp.patients = fullPatients;
+            setGroup(freshGrp);
+          } catch {/* ignore */ }
         }}
       />
 
@@ -268,8 +279,13 @@ useEffect(() => {
             />
           )}
 
-          {activeTab === "groupRecommendations" && (
-            <GroupInsightsTab group={group} />
+          {activeTab === "progress" && (
+            <GroupProgressTab
+              group={group}
+              appointmentId={appointmentId}
+              sessionGoals={selectedGoals}
+              apptStart={apptStart}
+            />
           )}
 
           {activeTab === "activityGenerator" && (
@@ -317,9 +333,9 @@ const TabBar = ({ active, setActive }) => {
   );
 
   return (
-    <div className="flex gap-4 bg-[#F5F4FB] rounded-2xl px-6 py-4 shadow-sm">
+    <div className="mx-auto flex justify-center gap-4 bg-[#F5F4FB] rounded-2xl px-10 py-4 shadow-sm">
       {Btn("visitNotes", "Visit Notes", ClipboardList)}
-      {Btn("groupRecommendations", "Group Insights", Users)}
+      {Btn("progress", "Patient Progress", ChartLine)}
       {Btn("activityGenerator", "Activity Generator", Sparkle)}
     </div>
   );
@@ -446,6 +462,123 @@ const GroupInsightsTab = ({ recommendation, group }) => {
     </div>
   );
 };
+
+function GroupProgressTab({ group, appointmentId, sessionGoals, apptStart }) {
+  const buildRows = (grp, goals) =>
+    grp.patients.map(p => ({
+      pid   : p._id,
+      name  : p.name,
+      goals : goals
+        .filter(g => p.goals.includes(g))
+        .map(g => {
+          const gp   = p.goalProgress.find(r => r.name === g);
+          const hist = gp?.history?.find(
+                        h => String(h.appointment) === String(appointmentId)
+                      );
+          return {
+            name         : g,
+            latest       : gp?.progress ?? 0,
+            visitProgress: hist?.progress ?? (gp?.progress ?? 0)
+          };
+        })
+    }));
+
+  const [rows, setRows] = useState(() => buildRows(group, sessionGoals));
+  useEffect(() => setRows(buildRows(group, sessionGoals)),
+            [group, sessionGoals]);
+
+ const setGoal = async (pid, gName, val, commit=false) => {
+   setRows(r =>
+     r.map(p =>
+       p.pid === pid
+         ? {
+             ...p,
+             goals: p.goals.map(g =>
+              g.name === gName
+                ? {
+                    ...g,
+                    visitProgress: val,
+                    latest: Math.max(g.latest, val), // ← recompute
+                  }
+                : g
+            ),
+          }
+        : p
+    )
+  );
+
+  if (commit) {
+    try {
+      await api.patch(
+        `/clients/${pid}/goal-progress/${appointmentId}`,
+        { goals:[{ name:gName, progress:val }], visitDate: apptStart }
+      );
+      /* bump overall */
+        setRows(r =>
+          r.map(p =>
+            p.pid === pid
+              ? {
+                  ...p,
+                  goals: p.goals.map(g =>
+                    g.name === gName
+                      ? {
+                          ...g,
+                          visitProgress: val,
+                          latest: Math.max(g.latest, val),   // ← keep the max
+                        }
+                      : g
+                  ),
+                }
+              : p
+          )
+        );
+    } catch {/* ignore */ }
+  }
+};
+
+  const save = async () => {
+    try {
+      await Promise.all(rows.map(p =>
+        api.patch(
+          `/clients/${p.pid}/goal-progress/${appointmentId}`,
+          { goals: p.goals.map(g => ({ name:g.name, progress:g.visitProgress })), visitDate: apptStart }
+        )
+      ));
+      setRows(r => r.map(p => ({
+  ...p,
+  goals: p.goals.map(g => ({
+    ...g,
+    latest: Math.max(g.latest, g.visitProgress)        // ← keep the max
+  }))
+})));
+      alert("Progress saved!");
+    } catch (e) {
+      alert(e.response?.data?.message || "Save failed");
+    }
+  };
+
+  /* ---------- render ---------- */
+  return (
+    <div className="space-y-6">
+      {rows.map(p => (
+        <div key={p.pid}>
+          <h4 className="text-lg font-semibold mb-3">{p.name}</h4>
+          <ProgressTrackerVisit
+            rows={p.goals}
+             onChange={(idx,val,commit)=>setGoal(
+              p.pid,
+              p.goals[idx].name,
+              val,
+              commit
+  )}   /* one global save button below */
+          />
+        </div>
+      ))}
+      
+    </div>
+  );
+}
+
 
 const InsightRow = ({ ins }) => (
   <div className="flex items-center justify-between bg-gray-50 rounded-lg p-3">

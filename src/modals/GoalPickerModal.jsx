@@ -127,7 +127,7 @@ export default function GoalPickerModal({ open, onClose, video, onSaved }) {
   const save = async () => {
     setBusy(true)
     try {
-      // For client profile editing, update the client's goals directly
+      
       const { data } = await api.patch(`/videos/${video._id}/goals`, { // Changed API endpoint
         goals: sel,
       })

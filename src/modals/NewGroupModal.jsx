@@ -155,13 +155,39 @@ export default function NewGroupModal({ open, onClose, onCreated }) {
     setBusy(true)
     try {
       /* 1️⃣  create Group ------------------------------------------ */
-      const fd = new FormData()
-      fd.append("name", f.name || "Untitled Group")
-      f.members.forEach((id) => fd.append("patients", id))
-      f.goals.forEach((g) => fd.append("goals", g))
-      if (file) fd.append("avatar", file)
+           
+      const { data: allGroups } = await api.get("/groups");
+      const sel  = [...f.members].map(String).sort();
 
-      const { data: group } = await api.post("/groups", fd, { headers: { "Content-Type": "multipart/form-data" } })
+    const sameMembers = (g) => {
+      const ids = g.patients
+        .map((p) =>
+          // works whether populate() ran or not
+          typeof p === "string" ? p : p._id?.toString()
+        )
+        .filter(Boolean)
+        .sort();
+
+      if (ids.length !== sel.length) return false;
+      return ids.every((id, i) => id === sel[i]);
+    };
+
+      let group = allGroups.find(sameMembers);
+
+      /* 1️⃣  create Group only if it doesn’t exist ----------------- */
+      if (!group) {
+        const fd = new FormData();
+        fd.append("name", f.name || "Untitled Group");
+        f.members.forEach((id) => fd.append("patients", id));
+        f.goals.forEach((g) => fd.append("goals", g));
+        if (file) fd.append("avatar", file);
+
+        group = (
+          await api.post("/groups", fd, {
+            headers: { "Content-Type": "multipart/form-data" },
+          })
+        ).data;
+      }
 
       /* 2️⃣  create appointments --------------------------------- */
       const schedule = buildSchedule()

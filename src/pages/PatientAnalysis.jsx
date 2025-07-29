@@ -312,7 +312,7 @@ export default function PatientAnalysis() {
           <div className="col-span-8 flex flex-col space-y-6">
             {/* Tab Bar */}
             {/* Tab Bar */}
-<div className="flex gap-4 bg-[#F5F4FB] rounded-2xl px-6 py-4 shadow-sm">
+<div className="mx-auto flex justify-center gap-4 bg-[#F5F4FB] rounded-2xl px-10 py-4 shadow-sm">
   {[
     { id: "visitHistory",  label: "Visit History",      icon: ClipboardList },
     { id: "aiInsights",    label: "AI Insights",        icon: Zap },

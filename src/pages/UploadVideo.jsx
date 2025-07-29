@@ -153,11 +153,13 @@ export default function UploadVideo() {
 
     /* save attendance statuses */
     await Promise.all(
-      ids.map((pid) =>
-        api.patch(`/clients/${pid}/attendance/${apptId}`, {
+      ids.map(pid => api.patch(
+        `/clients/${pid}/attendance/${apptId}`,
+        {
           status: attendance[pid],
-        })
-      )
+          goals : selGoals            // << NEW >>
+        }
+      ))
     );
 
     nav(`/videos/${data._id}/review`);

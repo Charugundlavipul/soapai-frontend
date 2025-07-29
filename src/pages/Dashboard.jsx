@@ -26,8 +26,13 @@ import NewGroupModal from "../modals/NewGroupModal"
 import NewAppointmentModal from "../modals/UpdatedAppointmentModal"
 import UploadVideoModal from "../modals/UploadVideoModal"
 
+const jwtFromStorage = () => localStorage.getItem("jwt") || null;
+
 /* ────────────────────────────────────────────── */
 export default function Dashboard() {
+  const nav = useNavigate()
+  const [jwt        , setJwt]        = useState(jwtFromStorage)
+  const [authError  , setAuthError]  = useState(false)
   const [clients, setClients] = useState([])
   const [groups, setGroups] = useState([])
   const [appts, setAppts] = useState([])
@@ -55,14 +60,20 @@ export default function Dashboard() {
   const [qClient, setQClient] = useState("")
   const [qGroup, setQGroup] = useState("")
 
-  const nav = useNavigate()
 
   /* ─── Data fetch on mount ───────────────────────── */
   useEffect(() => {
-    api.get("/clients").then((r) => setClients(r.data))
-    api.get("/groups").then((r) => setGroups(r.data))
-    api.get("/appointments").then((r) => setAppts(r.data))
-  }, [])
+    if (!jwt) return          // not logged-in → skip
+
+  /* helper that flips authError=true on 401 */
+  const safe = (promise) =>
+    promise.catch((err) => {
+      if (err?.response?.status === 401) setAuthError(true)
+    })
+  safe(api.get("/clients")      .then(r => setClients(r.data)))
+  safe(api.get("/groups")       .then(r => setGroups(r.data)))
+  safe(api.get("/appointments") .then(r => setAppts(r.data)))
+  }, [jwt])
 
   useEffect(() => {
     const open = () => setShowProfile(true)
@@ -218,6 +229,37 @@ export default function Dashboard() {
         }[status] || "bg-gray-300 text-gray-700"
     return <span className={`px-2 py-0.5 rounded-full text-xs capitalize ${cls}`}>{status}</span>
   }
+
+/* ── Not authenticated ─────────────────────────────────────── */
+if (!jwt || authError) {
+  return (
+    <div className="min-h-screen flex flex-col items-center justify-center bg-[#F5F4FB] px-6">
+      <div className="max-w-sm w-full text-center">
+        {/* logo / brand mark – optional */}
+        {/* <img src="/logo.svg" alt="ClinIQ" className="h-10 mx-auto mb-8" /> */}
+
+        <h1 className="text-3xl font-bold text-gray-900 mb-2">
+          Welcome back
+        </h1>
+        <p className="text-gray-600 mb-8">
+          Your session has ended. Please sign in again to continue.
+        </p>
+
+        <button
+          onClick={() => nav("/login")}
+          className="w-full py-3 rounded-lg bg-primary text-white font-semibold hover:bg-primary/90 shadow-sm transition-colors"
+        >
+          Sign in to your account
+        </button>
+      </div>
+
+      <footer className="absolute bottom-6 text-xs text-gray-400">
+        © {new Date().getFullYear()} SmartGoal AI. All rights reserved.
+      </footer>
+    </div>
+  )
+}
+
 
   /* ────────────────────────── JSX ────────────────────────── */
   return (

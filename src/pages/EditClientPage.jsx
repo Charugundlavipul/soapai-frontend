@@ -9,7 +9,7 @@ import { useEffect, useState, Suspense } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import axios from "axios";
 import api from "../services/api";
-
+import PatientJourneyChart from "../components/PatientJourneyChart";
 import Avatar from "../components/Avatar";
 import Navbar from "../components/Navbar";
 import EditClientProfileModal from "../modals/EditClientProfileModal";
@@ -378,7 +378,7 @@ function RightTabs({
     return (
         <div className="col-span-8 flex flex-col space-y-6">
             {/* tab buttons */}
-            <div className="flex gap-4 bg-[#F5F4FB] rounded-2xl px-6 py-4 shadow-sm">
+            <div className="mx-auto flex justify-center gap-4 bg-[#F5F4FB] rounded-2xl px-10 py-4 shadow-sm">
                 {tabs.map(({ id, label, icon: Icon }) => (
                     <button
                         key={id}
@@ -491,13 +491,13 @@ function RightTabs({
                     rows={client.goalProgress || []}
                     attendance={attendance}
                     onSave={async (updated) => {
-                        const norm = updated.map((r) => ({
+                        const norm = updated.map(r => ({
                             ...r,
+                            history   : r.history,                         // ← keep full log
                             targetDate: r.targetDate
                                 ? new Date(r.targetDate).toISOString()
                                 : null,
                         }));
-
                         await api.patch(`/clients/${client._id}/goal-progress`, {
                             items: norm,
                         });
@@ -554,31 +554,20 @@ function ProgressTracker({
         });
 
     /* ---------- build chart series ---------- */
-    const buildSeries = () => {
-        const real = attendance
-            .filter((a) => a.date && typeof a.progress === "number")
-            .sort((a, b) => new Date(a.date) - new Date(b.date))
-            .map((a) => ({
-                date: new Date(a.date).toLocaleDateString("en-GB", {
-                    day: "2-digit",
-                    month: "short",
+    const buildSeries = (hist = []) => {
+    const real = hist
+        .filter(h => h.date && typeof h.progress === "number")
+        .sort((a, b) => new Date(a.date) - new Date(b.date))
+        .map((a) => ({
+            date: new Date(a.date).toLocaleDateString("en-GB", {
+                day: "2-digit",
+                month: "short",
                 }),
                 value: a.progress,
             }));
 
-        /* placeholder (irregular) when no points OR all zeros */
-        if (!real.length || real.every((p) => p.value === 0)) {
-            const vals = [0, 10, 37, 53, 60, 60, 75, 90];
-            const today = new Date();
-            return vals.map((v, idx) => {
-                const d = new Date(today);
-                d.setDate(today.getDate() - (vals.length - 1 - idx) * 2); // every 2 days
-                return {
-                    date: d.toLocaleDateString("en-GB", { day: "2-digit", month: "short" }),
-                    value: v,
-                };
-            });
-        }
+       
+       
         return real;
     };
 
@@ -625,7 +614,7 @@ function ProgressTracker({
             )}
 
             {data.map((row, i) => {
-                const series = buildSeries();          /* calculate per render */
+                const series = buildSeries(row.history);          /* calculate per render */
 
                 return (
                     <div
@@ -744,30 +733,37 @@ function ProgressTracker({
 
                                 {/* chart */}
                                 <div className="space-y-2">
-                                    <p className="text-sm font-semibold text-gray-700">
-                                        Patient Journey
+                                <p className="text-sm font-semibold text-gray-700">Patient Journey</p>
+
+                                {row.history?.length ? (
+                                    <PatientJourneyChart
+                                    history={row.history}
+                                    onPointChange={(histIdx, newVal) => {
+                                        /* 1️⃣  update that visit’s progress */
+                                        const newHist = row.history.map((h, i) =>
+                                        i === histIdx ? { ...h, progress: newVal } : h
+                                        );
+
+                                        /* 2️⃣  recompute overall (highest) */
+                                        const best = Math.max(...newHist.map(h => h.progress));
+
+                                        /* 3️⃣  push into ProgressTracker state */
+                                        setRow(i, { history: newHist, progress: best });
+
+                                        /* 4️⃣  OPTIONAL – hit the API right away (uncomment if desired)
+                                                await api.patch(`/clients/${clientId}/goal-progress/${newHist[histIdx].appointment}`,
+                                                { goals:[{ name: row.name, progress: newVal }] });
+                                        */
+                                    }}
+                                    />
+                                ) : (
+                                    <div className="text-center py-8 text-gray-400 border-2 border-dashed border-gray-200 rounded-lg bg-white">
+                                    <p className="text-sm">
+                                        No journey data for <strong>{row.name}</strong> yet
                                     </p>
-                                    <div className="h-40">
-                                        <ResponsiveContainer width="100%" height={150}>
-                                            <LineChart data={series}>
-                                                <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                                                <XAxis
-                                                    dataKey="date"
-                                                    tick={{ fontSize: 11 }}
-                                                    padding={{ left: 4, right: 4 }}
-                                                />
-                                                <YAxis domain={[0, 100]} hide />
-                                                <Tooltip />
-                                                <Line
-                                                    type="monotone"
-                                                    dataKey="value"
-                                                    stroke="#6366f1"
-                                                    strokeWidth={2}
-                                                    dot={{ r: 3 }}
-                                                />
-                                            </LineChart>
-                                        </ResponsiveContainer>
+                                    <p className="text-xs mt-1">The patient hasn’t been assessed on this goal so far.</p>
                                     </div>
+                                )}
                                 </div>
 
                                 {/* ---------- Associated Activities (restored) ---------- */}

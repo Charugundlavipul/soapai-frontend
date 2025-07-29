@@ -9,11 +9,21 @@ export default function ForgotPassword() {
   const [msg, setMsg] = useState('');
 
   const submit = async e => {
-    e.preventDefault();
+  e.preventDefault();
+  setMsg('');                // clear previous message
+  try {
     await api.post('/auth/forgot-password', { email });
     setMsg('OTP sent! Check your e-mail.');
     setTimeout(() => nav('/reset', { state: { email } }), 1000);
-  };
+  } catch (ex) {
+    if (ex.response?.status === 404) {
+      setMsg('No account exists with that e-mail.');
+    } else {
+      setMsg('Server error – please try again later.');
+    }
+  }
+};
+
 
   return (
     <div className="min-h-screen flex">
@@ -28,7 +38,7 @@ export default function ForgotPassword() {
           <h2 className="text-2xl font-semibold mt-4">Forgot Password?</h2>
           <p className="text-gray-500">Enter your email to reset your password</p>
         </div>
-        {msg && <p className="text-green-600 mb-2">{msg}</p>}
+        
         <form onSubmit={submit} className="space-y-4">
           <div className="relative">
             <EnvelopeIcon className="absolute left-3 top-1/2 h-5 w-5 text-gray-400 -translate-y-1/2"/>
@@ -38,9 +48,13 @@ export default function ForgotPassword() {
                    type="email"
                    value={email}
                    onChange={e=>setEmail(e.target.value)}/>
+                   
           </div>
+          {msg && <p className="text-red-600 mb-2">{msg}</p>}
+          
           <button className="w-full py-2 bg-[#3D298D] text-white rounded-xl hover:bg-indigo-700">Submit</button>
         </form>
+        
       </div>
     </div>
   );

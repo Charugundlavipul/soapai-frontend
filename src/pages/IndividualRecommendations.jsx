@@ -4,10 +4,11 @@ import { useParams, useNavigate, useLocation } from "react-router-dom";
 import axios               from "axios";
 import Navbar              from "../components/Navbar";
 import GoalPickerModal     from "../modals/GoalPickerModal";
-import { ChevronLeft, ClipboardList, Zap, Sparkle,Sparkles } from "lucide-react";
+import { ChevronLeft, ClipboardList, Zap, Sparkle,ChartLine } from "lucide-react";
 import Avatar              from "../components/Avatar";
 import ActivityGenerator   from "../components/ActivityGenerator";
 import VisitNotes          from "../components/VisitNotes";
+import ProgressTrackerVisit from "../components/ProgressTrackerVisit";
 
 /* ───── axios helper ───── */
 const api = axios.create({
@@ -177,6 +178,11 @@ useEffect(() => {
         onSaved={v => {
           const names = v.goals.map(g => typeof g === "string" ? g : g.name);
           setSelectedGoals(names);
+
+          /* fetch fresh goalProgress that now includes 0-% rows */
+          api.get(`/clients/${client._id}`)
+             .then(({data}) => setClient(data))
+             .catch(()=>{/* silent */});
         }}
       />
 
@@ -212,6 +218,7 @@ useEffect(() => {
           client={client}
           activities={activities}
           setActivities={setActivities}
+          
           
           planMD={planMD}
           setPlanMD={setPlanMD}
@@ -390,7 +397,8 @@ function RightPanel({
   activities,
   setActivities,
   stgText,
-  onGenerateStg
+  onGenerateStg,
+  apptStart
 }) {
   return (
     <div className="col-span-8 flex flex-col space-y-6">
@@ -410,15 +418,13 @@ function RightPanel({
       )}
 
       {/* AI INSIGHTS */}
-      {activeTab === "aiInsights" && (
-        <div className="bg-[#F5F4FB] rounded-2xl p-6 shadow-sm space-y-4">
-          <h4 className="text-xl font-semibold text-gray-800 mb-5">
-            AI Insights
-          </h4>
-          {aiInsights.map((ins, i) => (
-            <InsightRow key={i} ins={ins} />
-          ))}
-        </div>
+      {activeTab === "progress" && (
+        <ProgressTab
+          patient={client}
+          appointmentId={appointmentId}
+          sessionGoals={selectedGoals}
+          apptStart={apptStart}
+        />
       )}
 
       {/* ACTIVITY GENERATOR */}
@@ -454,22 +460,86 @@ function TabBar({ active, setActive }) {
     </button>
   );
   return (
-    <div className="flex gap-4 bg-[#F5F4FB] rounded-2xl px-6 py-4 shadow-sm">
+    <div className="mx-auto flex justify-center gap-4 bg-[#F5F4FB] rounded-2xl px-10 py-4 shadow-sm">
       {btn("visitNotes", "Visit Notes", ClipboardList)}
-      {btn("aiInsights",  "AI Insights", Zap)}
+      {btn("progress", "Progress", ChartLine)}
       {btn("activityGenerator", "Activity Generator", Sparkle)}
     </div>
   );
 }
 
-/* small row */
-function InsightRow({ ins }) {
+function ProgressTab({ patient, appointmentId, sessionGoals, apptStart }) {
+  const buildRows = (goals, pat) =>
+    goals.map(g => {
+      const gp   = pat.goalProgress.find(r => r.name === g);
+      const hist = gp?.history?.find(
+        h => String(h.appointment) === String(appointmentId)
+      );
+      return {
+        name         : g,
+        latest       : gp?.progress ?? 0,
+        visitProgress: hist?.progress ?? (gp?.progress ?? 0)
+      };
+    });
+
+  const [rows, setRows] = useState(() => buildRows(sessionGoals, patient));
+  useEffect(() => setRows(buildRows(sessionGoals, patient)),
+           [sessionGoals, patient]);
+  const [saving, setSaving] = useState(false);
+
+  const change = async (idx, val, commit=false) => {
+      setRows(r =>
+        r.map((row, i) =>
+          i === idx
+            ? {
+                ...row,
+                visitProgress: val,
+                latest: Math.max(row.latest, val), // ← recompute
+              }
+            : row
+        )
+      );
+    if (commit) {
+      const goal = rows[idx].name;
+      try {
+        await api.patch(
+          `/clients/${patient._id}/goal-progress/${appointmentId}`,
+          { goals:[{ name:goal, progress:val }], visitDate: apptStart }
+        );
+        /* update overall instantly */
+        setRows(r => r.map((row,i)=>
+          i===idx
+            ? { ...row, latest: Math.max(row.latest, val) }   // ← only raise
+            : row
+        ));
+      } catch {/* ignore small lag */ }
+    }
+  };
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      await api.patch(
+        `/clients/${patient._id}/goal-progress/${appointmentId}`,
+        { goals: rows.map(r => ({ name:r.name, progress:r.visitProgress })), visitDate: apptStart }
+      );
+      setRows(r => r.map(row => ({
+          ...row,
+          latest: Math.max(row.latest, row.visitProgress)      // ← keep the max
+        })));
+      alert("Progress saved!");
+    } catch (e) {
+      alert(e.response?.data?.message || "Save failed");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
-    <div className="flex items-center justify-between bg-gray-50 rounded-lg p-3">
-      <div className="text-sm text-gray-800">{ins.text}</div>
-      <span className={`${ins.color} text-xs font-medium px-2 py-1 rounded-full`}>
-        {ins.tag}
-      </span>
-    </div>
+    <ProgressTrackerVisit
+      rows={rows}
+      onChange={change}
+   
+    />
   );
 }

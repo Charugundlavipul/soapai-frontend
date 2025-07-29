@@ -10,9 +10,7 @@ import MultiSelectDropdown from "./multi-select-dropdown"
 import SingleSelectDropdown from "./single-select-dropdown"
 import SavingToast from "../components/savingToast"
 import axios from "axios"
-import MarkdownToPDF from "../components/MarkdownToPDF"
 import { Users, Target, Clock, Edit, Trash2, AlertTriangle } from "lucide-react"
-import html2pdf from "html2pdf.js"
 
 
 const api = axios.create({
@@ -38,46 +36,6 @@ const parseMarkdownToHTML = (markdown) => {
     return markdown
   }
 }
-
-const PDF_PROSE_CSS = `
-<style>
-/* ---------- printable area ---------- */
-.pdf-page{
-  /* Full page width but paddings become your “margins” */
-  width:595pt;               /* exact width of A4/Letter in jsPDF */
-  padding:40pt;              /* 40 pt on all sides  ≈ 0.56" margin */
-  box-sizing:border-box;     /* include padding in the width calc  */
-
-  /* handle long words / explicit line breaks */
-  overflow-wrap:anywhere;
-  white-space:pre-wrap;
-  font-family:Helvetica,Arial,sans-serif;
-  font-size:12pt;
-  line-height:1.35;
-}
-
-/* ---------- typography ---------- */
-h1{font-size:24pt;font-weight:700;margin:0 0 8pt 0;}
-h2{font-size:18pt;font-weight:700;margin:12pt 0 6pt 0;}
-h3{font-size:14pt;font-weight:600;margin:10pt 0 4pt 0;}
-h4{font-size:12pt;font-weight:600;margin:8pt 0 4pt 0;}
-
-p{margin:4pt 0;}
-
-ul,ol{margin:6pt 0 6pt 1.2em;padding-left:0;}
-li{margin:0 0 4pt 0;}
-
-strong{font-weight:700;}
-em{font-style:italic;}
-
-blockquote{
-  border-left:4pt solid #ccc;padding-left:6pt;margin:6pt 0;
-  font-style:italic;color:#555;
-}
-</style>`;
-
-
-
 
 // Helper functions
 const todayISO = () => new Date().toISOString()
@@ -282,10 +240,6 @@ export default function ActivityGenerator({
       setLoadingState("previewPlan", false)
     }
   }
-  function ensureHtml(str = "") {
-    const looksLikeHtml = /<\/?[a-z][\s\S]*>/i.test(str.trim());
-    return looksLikeHtml ? str : parseMarkdownToHTML(str);
-  }
 
 async function elementToPdfBlob(element, filename) {
   await new Promise(r => requestAnimationFrame(r));
@@ -338,46 +292,27 @@ async function elementToPdfBlob(element, filename) {
 
       // Step 3: Generate and download PDF using current HTML
       // -----------------------------------------------------------------
-// 3️⃣  generate & download the PDF ---------------------------------
-await new Promise(r => requestAnimationFrame(r));  // wait one paint
+      // 3️⃣  generate & download the PDF ---------------------------------
+      await new Promise(r => requestAnimationFrame(r));  // wait one paint
 
-const filename = `activity_${todayISO().slice(0,10)}_${slugify(newActivity.name)}.pdf`;
-const pdfBlob  = await elementToPdfBlob(pdfRef.current, filename);
+      const filename = `activity_${todayISO().slice(0,10)}_${slugify(newActivity.name)}.pdf`;
+      const pdfBlob  = await elementToPdfBlob(pdfRef.current, filename);
 
-// upload for patients (if you still need this step)
-await Promise.allSettled(
-  members.map(id => uploadMaterial(id, pdfBlob, filename, todayISO().slice(0,10), slugify(newActivity.name)))
-);
+      // upload for patients (if you still need this step)
+      await Promise.allSettled(
+        members.map(id => uploadMaterial(id, pdfBlob, filename, todayISO().slice(0,10), slugify(newActivity.name)))
+      );
 
-// …then use pdfBlob in uploadMaterial …
-
-
-      // // Step 4: Upload materials with deduplication
-      // await Promise.allSettled(
-      //     members.map((patientId) =>
-      //         uploadMaterial(patientId, pdfBlob, filename, date, slug).catch((err) => {
-      //           console.error(`Failed to upload material for patient ${patientId}:`, err)
-      //           return null // Don't fail the entire operation
-      //         }),
-      //     ),
-      // )
-
-      // Step 5: Create visit history entries
-      const visit = {
-        date: todayISO(),
-        appointment: appointmentId,
-        type: mode,
-        note: "See generated plan.",
-        aiInsights: [],
-        activities: [newActivity._id],
-      }
 
       await Promise.allSettled([
         // Visit history
         ...members.map((patientId) =>
-            api.post(`/clients/${patientId}/visit`, { visit }).catch((err) => {
-              console.error(`Failed to create visit for patient ${patientId}:`, err)
-              return null
+            api.patch(
+                `/clients/${patientId}/visit/${appointmentId}/activities`,
+                { activities: [newActivity._id] }
+            ).catch((err) => {
+                console.error(`Failed to create visit for patient ${patientId}:`, err)
+                return null
             }),
         ),
         // Goal progress
@@ -412,42 +347,6 @@ await Promise.allSettled(
     } finally {
       setLoadingState("confirmSave", false)
     }
-  }
-
-  // Helper utilities
-function htmlToPdfBlob(node) {
-  return new Promise((resolve) => {
-    const pdf = new jsPDF({
-      unit: "pt",
-      format: "a4",
-      // landscape: true,  // uncomment if you ever need landscape
-    });
-
-    /* The magic: html() keeps real text, honours CSS that is
-       already present in the page (Tailwind, typography plugin, etc.) */
-    pdf.html(node, {
-      // 40 pt ≈ 0.56‑inch page margin
-      margin: 0,
-
-      /* Let html2canvas fetch remote images / fonts if you ever embed them */
-      html2canvas: {
-        scale: 1,
-        useCORS: true,
-        windowWidth: node.scrollWidth,   // 👈 new
-      },
-
-      callback: (doc) => resolve(doc.output("blob")),
-    });
-  });
-}
-
-  function downloadBlob(blob, filename) {
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement("a")
-    a.href = url
-    a.download = filename
-    a.click()
-    URL.revokeObjectURL(url)
   }
 
   async function uploadMaterial(patientId, blob, filename, date, slug) {
@@ -598,12 +497,12 @@ function htmlToPdfBlob(node) {
                   </p>
                 </div>
                 <div>
-                  <p className="text-sm font-medium text-gray-700 mb-3">Select Materials</p>
-                  <div className="space-y-2 max-h-48 overflow-y-auto">
+                  <p className="text-sm text-gray-600 whitespace-pre-wrap"><strong>Select Materials</strong></p>
+                  <div className="space-y-1 max-h-48 overflow-y-auto">
                     {draft.materials?.map((material) => (
                         <label
                             key={material}
-                            className="flex items-center gap-3 p-2 rounded-lg hover:bg-gray-50 cursor-pointer"
+                            className="flex items-center gap-2 p-2 rounded-lg hover:bg-gray-50 cursor-pointer"
                         >
                           <input
                               type="checkbox"
@@ -613,7 +512,7 @@ function htmlToPdfBlob(node) {
                                       prev.includes(material) ? prev.filter((m) => m !== material) : [...prev, material],
                                   )
                               }
-                              className="h-4 w-4 text-[#3D298D] border-gray-300 rounded focus:ring-[#3D298D]/20"
+                              className="h-4 w-4 text-[#3D298D] border-gray-300 rounded focus:ring-[#3D298D]/20 accent-[#3D298D]"
                               disabled={isAnyLoading}
                           />
                           <span className="text-sm text-gray-700">{material}</span>
