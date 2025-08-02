@@ -40,6 +40,19 @@ export default function VisitNotes({
             {/* patient name */}
             <h5 className="font-semibold text-primary">{p.name}</h5>
 
+            {/* ─── Visit Note ─── */}
+            <div className="space-y-1">
+              <h6 className="text-xs font-semibold text-gray-500 uppercase">
+                Visit Note
+              </h6>
+              <VisitNoteEditor
+                patientId={p._id}
+                appointmentId={appointmentId}
+                initialNote={noteOf(p._id)}
+                onSaved={txt => onSave(p._id, txt)}
+              />
+            </div>
+
             {/* ─── Short-Term Goal ─── */}
             <div className="space-y-2">
               <h6 className="text-xs font-semibold text-gray-500 uppercase">
@@ -79,7 +92,7 @@ export default function VisitNotes({
                       stgText ? "" : "italic text-gray-400"
                     }`}
                   >
-                    {stgText || "Generate a short-term goal for this patient."}
+                    {stgText || "Using Visit Note, generate a short-term goal for this patient."}
                   </p>
 
                   <div className="flex items-center gap-2">
@@ -134,18 +147,7 @@ export default function VisitNotes({
               )}
             </div>
 
-            {/* ─── Visit Note ─── */}
-            <div className="space-y-1">
-              <h6 className="text-xs font-semibold text-gray-500 uppercase">
-                Visit Note
-              </h6>
-              <VisitNoteEditor
-                patientId={p._id}
-                appointmentId={appointmentId}
-                initialNote={noteOf(p._id)}
-                onSaved={txt => onSave(p._id, txt)}
-              />
-            </div>
+
           </section>
         );
       })}

@@ -1,404 +1,238 @@
 // src/pages/SessionReview.jsx
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useMemo } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import NewGoalModal   from "../modals/NewGoalModal";
+import NewGoalModal from "../modals/NewGoalModal";
 import GoalPickerModal from "../modals/GoalPickerModal";
-import { getTranscript, chatLLM, getVideo, getProfile } from "../services/api";
+import { getVideo, getProfile, chatLLM } from "../services/api";
 import VideoPlayer from "../components/VideoPlayer";
 
 import axios from "axios";
 import {
   ChevronDown,
-  Plus,
+  Bot,
+  User,
+  CheckCircle2,
+  FileText,
   Send,
   Volume2,
   RefreshCcw,
-  ThumbsDown,
   Paperclip,
   Mic2,
-  X
+  X as XIcon,
 } from "lucide-react";
 
-import Navbar      from "../components/Navbar";
-import EmojiBtn    from "../components/EmojiBtn";
+import Navbar from "../components/Navbar";
+import EmojiBtn from "../components/EmojiBtn";
 
-const primaryBtn = "bg-primary hover:bg-primary/90 text-white";
-
-
-/* axios instance for one-off POST below */
 const api = axios.create({
-  baseURL : "http://localhost:4000/api",
-  headers : { Authorization: `Bearer ${localStorage.getItem("jwt")}` },
+  baseURL: "http://localhost:4000/api",
+  headers: { Authorization: `Bearer ${localStorage.getItem("jwt")}` },
 });
 
-
 export default function SessionReview() {
-  /* ─── basic data ─── */
-  const { id }    = useParams();           // video id
-  const navigate  = useNavigate();
-  const [video, setVideo] = useState(null);
-  const [user , setUser ] = useState(null);
-  const [transcribing, setTranscribing] = useState(false);
-
-  /* UI toggles */
-  const [showTx     , setShowTx     ] = useState(false);
-  const [showNewGoal, setShowNewGoal] = useState(false);
-  const [showPicker , setShowPicker ] = useState(false);
   const fileInputRef = useRef(null);
-  /* ─── fetch video + profile ─── */
-  useEffect(() => { getVideo(id).then(r => setVideo(r.data)); }, [id]);
-  useEffect(() => { getProfile().then(r => setUser(r.data));  }, []);
+  const { id } = useParams();
+  const navigate = useNavigate();
+  const [video, setVideo] = useState(null);
+  const [user, setUser] = useState(null);
 
-  /* fetch transcript lazily */
-  /* fetch transcript lazily */
-  useEffect(() => {
-    if (!showTx) return;
+  // left-column tabs
+  const [activeTab, setActiveTab] = useState("goals"); // 'goals' | 'transcript'
+  const [showNewGoal, setShowNewGoal] = useState(false);
+  const [showPicker, setShowPicker] = useState(false);
 
-    setTranscribing(true);
-    getTranscript(id)
-        .then(r => {
-          setVideo(v => ({ ...v, transcript: r.data }));
-          setTranscribing(false);
-        })
-        .catch(() => {
-          alert("Failed to fetch transcript");
-          setTranscribing(false);
-        });
-  }, [showTx, id]);
-
-  /* poll until transcript ready */
-  /* poll until transcript ready */
-  useEffect(() => {
-    if (!video || (video.transcript?.length ?? 0) > 0) return;
-
-    setTranscribing(true);
-    const h = setInterval(() => {
-      getVideo(id).then(r => {
-        if (r.data.transcript?.length) {
-          setVideo(r.data);
-          setTranscribing(false);
-          clearInterval(h);
-        }
-      });
-    }, 3000);
-    return () => {
-      clearInterval(h);
-      setTranscribing(false);
-    };
-  }, [video, id]);
-
-  /* ─── helpers ─── */
-  const fmt = s => `${Math.floor(s/60)}:${String(Math.floor(s%60)).padStart(2,"0")}`;
-
-  /* ─── chat state ─── */
-  const [msgs , setMsgs ] = useState([{ role:"assistant", content:"Hello! 👋 I'm your AI assistant…" }]);
+  // chat state
+  const [msgs, setMsgs] = useState([{ role: "assistant", content: "Hello! 👋 I'm your AI assistant, SOAP. How can I help you analyze this session?" }]);
   const [draft, setDraft] = useState("");
   const [files, setFiles] = useState([]);
   const chatEndRef = useRef(null);
 
-  useEffect(() => { chatEndRef.current?.scrollIntoView({behavior:"smooth"}); }, [msgs]);
+  useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [msgs]);
 
-  /* speech-to-text */
+  // fetch video + profile
+  useEffect(() => { getVideo(id).then(r => setVideo(r.data)); }, [id]);
+  useEffect(() => { getProfile().then(r => setUser(r.data)); }, []);
+
+  // speech-to-text setup
   const [listening, setListening] = useState(false);
   const recRef = useRef(null);
-const toggleMic = () => {
-  if (!("webkitSpeechRecognition" in window)) return alert("Speech-to-text not supported");
+  const toggleMic = () => {
+    if (!("webkitSpeechRecognition" in window)) return alert("Speech-to-text not supported.");
+    if (!recRef.current) {
+      const R = new window.webkitSpeechRecognition();
+      R.lang = "en-US"; R.continuous = true; R.interimResults = false;
+      R.onresult = e => {
+        let t = "";
+        for (let i = e.resultIndex; i < e.results.length; ++i)
+          if (e.results[i].isFinal) t += e.results[i][0].transcript;
+        setDraft(d => `${d}${d ? " " : ""}${t.trim()}`);
+      };
+      recRef.current = R;
+    }
+    listening ? recRef.current.stop() : recRef.current.start();
+    setListening(!listening);
+  };
 
-  if (!recRef.current) {
-    const R = new window.webkitSpeechRecognition();
-    R.lang = "en-US";
-    R.continuous = true;
-    R.interimResults = false;
+  // chat helpers
+  const speakLastAssistant = () => {
+    const last = [...msgs].reverse().find(m => m.role === "assistant");
+    if (!last) return;
+    const u = new SpeechSynthesisUtterance(last.content);
+    u.lang = "en-US";
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.speak(u);
+  };
+  const regenerateLastAnswer = async () => {
+    const lastUserIdx = msgs.map(m => m.role).lastIndexOf("user");
+    if (lastUserIdx === -1) return;
+    const history = msgs.slice(0, lastUserIdx + 1);
+    setMsgs(history);
+    try {
+      const { data } = await chatLLM({ messages: history });
+      setMsgs(m => [...m, { role: "assistant", content: data.reply, time: new Date() }]);
+    } catch {
+      alert("Failed to regenerate response");
+    }
+  };
 
-    R.onresult = e => {
-      let transcript = "";
-      for (let i = e.resultIndex; i < e.results.length; ++i) {
-        if (e.results[i].isFinal) {
-          transcript += e.results[i][0].transcript;
-        }
-      }
-      setDraft(d => `${d}${d ? " " : ""}${transcript.trim()}`);
-    };
+  // attachments
+  const handleFiles = e => {
+    const picked = Array.from(e.target.files);
+    setFiles(p => [...p, ...picked]);
+    e.target.value = "";
+  };
+  const removeFile = i => setFiles(p => p.filter((_, idx) => idx !== i));
 
-    recRef.current = R;
-  }
-
-  listening ? recRef.current.stop() : recRef.current.start();
-  setListening(!listening);
-};
-/* ─── chat-tool buttons ─── */
-
-/**
- * Speak the most recent assistant message using the Web Speech API
- */
-const speakLastAssistant = () => {
-  const lastAssistant = [...msgs].reverse().find(m => m.role === "assistant");
-  if (!lastAssistant) return;
-
-  const utter = new SpeechSynthesisUtterance(lastAssistant.content);
-  utter.lang = "en-US";
-  window.speechSynthesis.cancel();      // stop any ongoing speech
-  window.speechSynthesis.speak(utter);  // speak the new text
-};
-
-/* ─── attachment helpers ─── */
-const handleFiles = e => {
-  const picked = Array.from(e.target.files);
-  setFiles(prev => [...prev, ...picked]);
-  e.target.value = "";         // reset so the same file can be chosen again
-};
-const removeFile = idx => setFiles(prev => prev.filter((_, i) => i !== idx));
-
-/**
- * Re-ask the model for a fresh answer to the last user message.
- * – removes the previous assistant reply
- * – calls chatLLM again with the same history
- */
-const regenerateLastAnswer = async () => {
-  const lastUserIdx = [...msgs]
-    .reverse()
-    .findIndex(m => m.role === "user");
-  if (lastUserIdx === -1) return;               // nothing to redo
-
-  // strip everything after (and incl.) the last user message
-  const cutIdx = msgs.length - 1 - lastUserIdx;
-  const history = msgs.slice(0, cutIdx + 1);    // keep up to last user msg
-  setMsgs(history);                             // remove old assistant reply
-
-  const body = { messages: history };
-  try {
-    const { data } = await chatLLM(body);
-    setMsgs(m => [
-      ...m,
-      { role: "assistant", content: data.reply, time: new Date() },
-    ]);
-  } catch (e) {
-    alert("Failed to regenerate response");
-  }
-};
-
-
-  /* send chat */
+  // send chat
   const doSend = async e => {
     e?.preventDefault();
     if (!draft.trim() && !files.length) return;
-    const fileMeta = files.map(f => ({
-      name: f.name,
-      type: f.type,
-      size: f.size
-    }));
-
-    const userMsg = { role:"user", content:draft, time:new Date(), files:fileMeta };
+    const meta = files.map(f => ({ name: f.name, type: f.type, size: f.size }));
+    const userMsg = { role: "user", content: draft, time: new Date(), files: meta };
     setMsgs(m => [...m, userMsg]);
     setDraft(""); setFiles([]);
-
     const body = files.length
-      ? (() => { const fd=new FormData(); fd.append("messages",JSON.stringify([...msgs,userMsg])); files.forEach(f=>fd.append("attachment",f)); return fd; })()
-      : { messages:[...msgs,userMsg] };
-
+      ? (() => { const fd = new FormData(); fd.append("messages", JSON.stringify([...msgs, userMsg])); files.forEach(f => fd.append("attachment", f)); return fd; })()
+      : { messages: [...msgs, userMsg] };
     const { data } = await chatLLM(body);
-    setMsgs(m => [...m, { role:"assistant", content:data.reply, time:new Date() }]);
+    setMsgs(m => [...m, { role: "assistant", content: data.reply, time: new Date() }]);
   };
 
-  /* loading guard */
-  if (!video || !user) return (
-    <div className="min-h-screen flex flex-col bg-gray-50">
-      <Navbar/>
-      <div className="flex-1 flex items-center justify-center text-gray-500">Loading…</div>
-    </div>
-  );
+  // guard
+  if (!video || !user) {
+    return (
+      <div className="min-h-screen flex flex-col bg-gray-100">
+        <Navbar />
+        <div className="flex-1 flex items-center justify-center text-gray-500">Loading Session…</div>
+      </div>
+    );
+  }
 
-  /* ─── render ─── */
+  // render
   return (
-    <div className="min-h-screen flex flex-col bg-white">
-      <Navbar/>
+    <div className="h-screen flex flex-col bg-gray-50 overflow-hidden">
+      <Navbar />
 
-      <main className="p-6 max-w-[1300px] mx-auto flex gap-6">
-        {/* LEFT COLUMN */}
-        <div className="space-y-6 shrink-0">
-          <div className="w-[463px] h-[261px] rounded-lg overflow-hidden">
+      <main className="px-6 max-w-[1400px] w-full mx-auto flex-1 min-h-0 flex gap-6 overflow-hidden">
+        {/* ─── LEFT ─── */}
+        <div className="flex flex-col gap-6 w-[520px] shrink-0">
+          <div className="w-full aspect-video rounded-lg overflow-hidden bg-black shadow-md">
             <VideoPlayer src={video.fileUrl} />
           </div>
 
-          <div className="bg-[#FAF8FF] rounded-xl p-6 space-y-4 shadow" style={{width:463,height:330}}>
-            {showTx ? (
-                <>
-                  <QuickRow icon={ChevronDown} label="Video Transcript (Hide)" onClick={()=>{setShowTx(false); setTranscribing(false);}}/>
-                  {transcribing ? (
-                      <div className="flex flex-col items-center justify-center py-12 space-y-4">
-                        <div className="relative">
-                          <div className="w-12 h-12 border-4 border-primary/20 border-t-primary rounded-full animate-spin"></div>
-                        </div>
-                        <div className="text-center">
-                          <p className="text-primary font-medium">Transcribing audio...</p>
-                          <p className="text-sm text-gray-500 mt-1">This may take a few moments</p>
-                        </div>
-                        <div className="flex space-x-1">
-                          <div className="w-2 h-2 bg-primary rounded-full animate-bounce" style={{animationDelay: '0ms'}}></div>
-                          <div className="w-2 h-2 bg-primary rounded-full animate-bounce" style={{animationDelay: '150ms'}}></div>
-                          <div className="w-2 h-2 bg-primary rounded-full animate-bounce" style={{animationDelay: '300ms'}}></div>
-                        </div>
-                      </div>
-                  ) : (
-                      <div className="overflow-y-auto border rounded-md" style={{maxHeight:240}}>
-                        <table className="w-full text-sm">
-                          <thead className="bg-primary/10 text-primary">
-                          <tr><th className="px-4 py-2 w-24">Start</th><th className="px-4 py-2 w-24">End</th><th className="px-4 py-2">Text</th></tr>
-                          </thead>
-                          <tbody>
-                          {video.transcript?.map((u,i)=>(
-                              <tr key={i} className="border-t">
-                                <td className="px-4 py-2">{fmt(u.start)}</td>
-                                <td className="px-4 py-2">{fmt(u.end)}</td>
-                                <td className="px-4 py-2">{u.text}</td>
-                              </tr>
-                          ))}
-                          </tbody>
-                        </table>
-                      </div>
-                  )}
-                </>
-            ) : (
-              <>
-                <div className="flex justify-between items-center">
-                  <h3 className="text-lg font-semibold">Selected Goals</h3>
-                  <button onClick={()=>setShowPicker(true)} className="px-4 py-1 rounded-full bg-primary text-white text-sm">Change</button>
-                </div>
+          <div className="bg-white rounded-xl shadow-md flex-1 flex flex-col">
+            <div className="flex border-b border-gray-200">
+              <TabButton icon={CheckCircle2} label="Goals" isActive={activeTab === 'goals'} onClick={() => setActiveTab('goals')} />
+              <TabButton icon={FileText} label="Transcript" isActive={activeTab === 'transcript'} onClick={() => setActiveTab('transcript')} />
+            </div>
 
-                {/* pills */}
-                <div className="flex flex-wrap gap-2">
-                  {(video.goals ?? []).map((g, i) => {
-                    /* support strings *and* { name, category } objects */
-                    const label =
-                      typeof g === "string"
-                        ? g
-                        : g.category
-                        ? `${g.category}: ${g.name}`
-                        : g.name;
-
-                    return (
-                      <span
-                        key={i}
-                        className="px-3 py-1 bg-white border border-gray-200 rounded-md text-sm"
-                      >
-                        {label}
-                      </span>
-                    );
-                  })}
-                </div>
-
-
-                {/* <QuickRow icon={Plus} label="Create New Goal" onClick={()=>setShowNewGoal(true)}/> */}
-                <QuickRow icon={ChevronDown} label="Video Transcript (Show)" onClick={()=>setShowTx(true)}/>
-                <QuickRow icon={ChevronDown} label="Visualized Progress" onClick={()=>alert("Coming soon")}/>
-
-               <button
-                 className="block mx-auto w-80 py-2 rounded-md bg-primary text-white"
-                 onClick={async () => {
-                   const apptId = video.appointment;
-                   if (!apptId) return alert("No appointment linked to this video.");
-
-                  /* 1️⃣ tell the server to create placeholder visit rows */
-                  try {
-                    await api.post(`/appointments/${apptId}/recommendations`);
-                  } catch (_) {
-                    /* ignore 409/duplicate errors – placeholders may already exist */
-                  }
-
-                  /* 2️⃣ then navigate, passing the usual state */
-                  navigate(`/appointments/${apptId}/recommendations`, {
-                    state: {
-                      video,
-                      selectedGoals: (video.goals ?? []).map(g =>
-                        typeof g === "string" ? g : g.name
-                      ),
-                    },
-                  });
-                }}>
-                Get AI Recommendations
-              </button>
-              </>
-            )}
+            <div className="p-6 flex-1 flex flex-col">
+              {activeTab === 'goals' ? (
+                <GoalsTab video={video} setVideo={setVideo} openPicker={() => setShowPicker(true)} />
+              ) : (
+                <TranscriptTab videoId={id} transcript={video.transcript} />
+              )}
+            </div>
           </div>
         </div>
 
-        {/* CHAT COLUMN */}
-        <div className="bg-[#FAF8FF] rounded-xl flex flex-col shadow-sm" style={{width:591,height:600}}>
-          <h3 className="px-6 py-4 border-b text-lg font-semibold text-primary">Chat with SOAP</h3>
-
-          <div className="flex-1 overflow-y-auto px-6 pt-4 space-y-4">
-            {msgs.map((m,i)=> m.role==="assistant"
-              ? <Bubble key={i} side="left"  avatar="S"             msg={m}/>
-              : <Bubble key={i} side="right" avatar={user.avatarUrl} msg={m}/>
-            )}
-            <div ref={chatEndRef}/>
-            <div className="flex gap-4 text-gray-500 pt-2 pb-2">
-            <Volume2
-              className="w-5 h-5 hover:text-primary cursor-pointer"
-              onClick={speakLastAssistant}
-              title="Read aloud"
-            />
-            <RefreshCcw
-              className="w-5 h-5 hover:text-primary cursor-pointer"
-              onClick={regenerateLastAnswer}
-              title="Regenerate answer"
-            />
-            {/* Hide for now; flip the flag if you want it back */}
-            {/* <ThumbsDown className="w-5 h-5 hover:text-primary cursor-pointer"/> */}
+        {/* ─── RIGHT CHAT ─── */}
+        <div className="bg-white rounded-xl shadow-md flex flex-col flex-1 overflow-hidden">
+          <h3 className="px-6 py-4 border-b border-gray-200 text-lg font-semibold text-primary flex items-center gap-2 shrink-0">
+            <Bot size={20} /> Chat with SOAP
+          </h3>
+          
+          {/* This is the scrollable message container. `min-h-0` is key for flexbox to allow it to scroll. */}
+          <div className="flex-1 min-h-0 overflow-y-auto px-6 pt-6 space-y-6">
+            {msgs.map((m, i) => (
+              <Bubble
+                key={i}
+                msg={m}
+                avatar={m.role === 'assistant' ? Bot : (user.avatarUrl || User)}
+                isLastAssistant={m.role === 'assistant' && i === msgs.length - 1}
+                onSpeak={speakLastAssistant}
+                onRegenerate={regenerateLastAnswer}
+              />
+            ))}
+            <div ref={chatEndRef} />
           </div>
 
-          </div>
-          
-          
           {files.length > 0 && (
-              <div className="px-6 pb-2">
-                <p className="text-xs text-gray-500 mb-1">Attachments:</p>
-                <ul className="flex flex-wrap gap-2">
-                  {files.map((f, i) => (
-                    <li
-                      key={i}
-                      className="flex items-center gap-1 bg-white border rounded px-2 py-1 text-xs max-w-[140px]"
-                    >
-                      <span className="truncate">{f.name}</span>
-                      <X
-                        className="w-3 h-3 cursor-pointer"
-                        onClick={() => removeFile(i)}
-                      />
-                    </li>
-                  ))}
-                </ul>
+            <div className="px-6 pb-2 border-t border-gray-200 pt-3 shrink-0">
+              <p className="text-xs text-gray-500 mb-2 font-medium">Attachments:</p>
+              <ul className="flex flex-wrap gap-2">
+                {files.map((f, i) => (
+                  <li key={i} className="flex items-center gap-1.5 bg-gray-100 border rounded-md px-2 py-1 text-xs max-w-[150px]">
+                    <Paperclip className="w-3 h-3 text-gray-500" />
+                    <span className="truncate text-gray-700">{f.name}</span>
+                    <XIcon className="w-3.5 h-3.5 cursor-pointer text-gray-400 hover:text-gray-700" onClick={() => removeFile(i)} />
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          <form onSubmit={doSend} className="border-t border-gray-200 p-4 flex items-center gap-3 shrink-0">
+            <div className="relative flex-1">
+              <Paperclip
+                className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 cursor-pointer hover:text-primary"
+                onClick={() => fileInputRef.current?.click()}
+                title="Attach files"
+              />
+              <input
+                value={draft}
+                onChange={e => setDraft(e.target.value)}
+                placeholder="Message SOAP…"
+                className="w-full border border-gray-300 rounded-full pl-10 pr-20 py-2.5 bg-white outline-none focus:ring-2 focus:ring-primary focus:border-primary"
+              />
+              <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-2">
+                <EmojiBtn onSelect={e => setDraft(d => d + e)} />
+                <Mic2
+                  className={`w-5 h-5 cursor-pointer ${listening ? "text-primary" : "text-gray-400 hover:text-primary"}`}
+                  onClick={toggleMic}
+                />
               </div>
-            )}
-
-          <form onSubmit={doSend} className="border-t p-4 flex items-center gap-3 bg-[#FAF8FF]">
-            <Paperclip className="w-5 h-5 text-gray-400 cursor-pointer" onClick={() => fileInputRef.current?.click()}
-              title="Attach files"
-            />
-
+            </div>
             <input type="file" multiple hidden ref={fileInputRef} onChange={handleFiles} />
-
-            <input value={draft} onChange={e=>setDraft(e.target.value)} placeholder="Message to SOAP…"
-                   className="flex-1 border rounded-full px-3 py-2 bg-white outline-none focus:ring-2 focus:ring-primary"/>
-
-            <EmojiBtn onSelect={e=>setDraft(d=>d+e)}/>
-            <Mic2 className={`w-5 h-5 cursor-pointer ${listening?"text-primary":"text-gray-400"}`} onClick={toggleMic}/>
-
-            <button type="submit" className={`px-4 py-2 rounded-full flex items-center gap-1 ${primaryBtn}`}>
-              <Send className="w-4 h-4"/> Send
+            <button
+              type="submit"
+              className="px-4 py-2.5 rounded-full flex items-center gap-2 bg-primary text-white font-semibold hover:bg-primary/90 disabled:bg-primary/50"
+              disabled={!draft.trim() && files.length === 0}
+            >
+              <Send className="w-4 h-4" />
             </button>
           </form>
         </div>
 
-        {/* ─── Modals ─── */}
+        {/* ─── MODALS ─── */}
         <NewGoalModal
           open={showNewGoal}
-          onClose={()=>setShowNewGoal(false)}
-          onSaved={g=> setVideo(v=>({...v, goals:[...(v.goals||[]), g]}))}
+          onClose={() => setShowNewGoal(false)}
+          onSaved={g => setVideo(v => ({ ...v, goals: [...(v.goals || []), g] }))}
         />
-
         <GoalPickerModal
           open={showPicker}
-          onClose={()=>setShowPicker(false)}
+          onClose={() => setShowPicker(false)}
           video={video}
           onSaved={setVideo}
         />
@@ -407,32 +241,180 @@ const regenerateLastAnswer = async () => {
   );
 }
 
-/* Quick utility rows */
-const QuickRow = ({ icon:Icon, label, onClick }) => (
-  <button onClick={onClick} className="bg-white w-full flex justify-between items-center px-4 py-2 text-primary font-medium rounded-md hover:bg-primary/5">
-    {label}<Icon className="w-5 h-5"/>
+// ─── Goals Tab ───
+function GoalsTab({ video, setVideo, openPicker }) {
+  const navigate = useNavigate();
+  return (
+    <div className="flex flex-col h-full">
+      <div className="flex justify-between items-center mb-4">
+        <h3 className="text-lg font-semibold text-gray-800">Selected Goals</h3>
+        <button
+          onClick={openPicker}
+          className="px-4 py-1.5 rounded-md bg-primary/10 text-primary hover:bg-primary/20 text-sm font-medium"
+        >
+          Change
+        </button>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        {video.goals?.length > 0 ? video.goals.map((g, i) => {
+          const label = typeof g === "string"
+            ? g
+            : g.category ? `${g.category}: ${g.name}` : g.name;
+          return (
+            <span key={i} className="px-3 py-1 bg-gray-100 border border-gray-200 rounded-md text-sm text-gray-700">
+              {label}
+            </span>
+          );
+        }) : (
+          <p className="text-sm text-gray-500">No goals selected for this session.</p>
+        )}
+      </div>
+      <div className="mt-auto pt-4">
+        <button
+          className="w-full py-3 rounded-lg bg-primary text-white font-semibold hover:bg-primary/90 transition-colors"
+          onClick={async () => {
+            const apptId = video.appointment;
+            if (!apptId) return alert("No appointment linked to this video.");
+            try { await api.post(`/appointments/${apptId}/recommendations`); } catch { }
+            navigate(`/appointments/${apptId}/recommendations`, {
+              state: {
+                video,
+                selectedGoals: video.goals.map(g => typeof g === "string" ? g : g.name),
+              },
+            });
+          }}
+        >
+          Get AI Recommendations
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Transcript Tab ───
+function TranscriptTab({ videoId, transcript }) {
+  const [rows, setRows] = useState(transcript ?? []);
+  const [waiting, setWaiting] = useState(!transcript?.length);
+
+  useEffect(() => {
+    if (!waiting) return;
+    let cancelled = false;
+
+    (async function poll() {
+      try {
+        const { data } = await getVideo(videoId);
+        if (data.transcript?.length) {
+          if (!cancelled) {
+            setRows(data.transcript);
+            setWaiting(false);
+          }
+        } else {
+          await new Promise(r => setTimeout(r, 5000));
+          if (!cancelled) poll();
+        }
+      } catch {
+        // swallow, retry
+        if (!cancelled) {
+          await new Promise(r => setTimeout(r, 5000));
+          if (!cancelled) poll();
+        }
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [videoId, waiting]);
+
+  const table = useMemo(() => (
+    <div className="overflow-y-auto h-[240px] -mx-6">
+      <table className="w-full text-sm">
+        <thead className="sticky top-0 bg-gray-50 z-10">
+          <tr>
+            <th className="px-6 py-2 w-24 text-left font-medium text-gray-500">Start</th>
+            <th className="px-6 py-2 w-24 text-left font-medium text-gray-500">End</th>
+            <th className="px-6 py-2 text-left font-medium text-gray-500">Text</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-gray-200">
+          {rows.map((u, i) => (
+            <tr key={i} className="hover:bg-gray-50">
+              <td className="px-6 py-2 text-gray-600 font-mono">{fmt(u.start)}</td>
+              <td className="px-6 py-2 text-gray-600 font-mono">{fmt(u.end)}</td>
+              <td className="px-6 py-3 text-gray-800">{u.text}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  ), [rows]);
+
+  if (waiting) {
+    return (
+      <div className="flex flex-col items-center justify-center flex-1">
+        <svg className="animate-spin h-10 w-10 text-primary" viewBox="0 0 24 24">
+          <circle className="opacity-25" cx="12" cy="12" r="10"
+            stroke="currentColor" strokeWidth="4" fill="none" />
+          <path className="opacity-75" fill="currentColor"
+            d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+        </svg>
+        <p className="text-primary font-medium mt-4">Transcribing…</p>
+      </div>
+    );
+  }
+  return table;
+}
+
+// ─── UI Helpers ───
+const TabButton = ({ icon: Icon, label, isActive, onClick }) => (
+  <button
+    onClick={onClick}
+    className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 text-sm font-semibold border-b-2 transition-colors
+      ${isActive ? "text-primary border-primary" : "text-gray-500 border-transparent hover:bg-gray-100"}`}
+  >
+    <Icon size={16} /> {label}
   </button>
 );
 
-/* Chat bubble */
-const Bubble = ({ side, avatar, msg }) => {
-  const left = side==="left";
-  const time = msg.time?.toLocaleTimeString([], {hour:"2-digit", minute:"2-digit"});
+const Bubble = ({ msg, avatar: AvatarOrUrl, isLastAssistant, onSpeak, onRegenerate }) => {
+  const isAssistant = msg.role === "assistant";
+  const time = msg.time?.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
   return (
-    <div className={`flex gap-3 ${left?"":"justify-end"}`}>
-      {left && <Avatar avatar={avatar}/>}
-      <div className="flex flex-col items-start max-w-[320px]">
-        <div className={`${left?"bg-white text-gray-800":"bg-primary text-white"} border rounded-xl p-3`}>
+    <div className={`flex gap-3 ${isAssistant ? "" : "justify-end"}`}>
+      {isAssistant && <Avatar avatar={AvatarOrUrl} />}
+      <div className={`flex flex-col gap-1.5 ${isAssistant ? "items-start" : "items-end"} max-w-md`}>
+        <div className={`border rounded-xl p-3 w-fit
+          ${isAssistant ? "bg-gray-100 text-gray-800 rounded-bl-none" : "bg-primary text-white rounded-br-none"}`}>
           <p className="text-sm whitespace-pre-wrap leading-relaxed">{msg.content}</p>
         </div>
-        {time && <span className={`mt-1 text-xs ${left?"text-gray-400":"text-white/80 self-end"}`}>{time}</span>}
+        {isLastAssistant ? (
+          <div className="flex items-center gap-3 text-gray-400">
+            <Volume2 className="w-4 h-4 hover:text-primary cursor-pointer" onClick={onSpeak} />
+            <RefreshCcw className="w-4 h-4 hover:text-primary cursor-pointer" onClick={onRegenerate} />
+            {time && <span className="text-xs">{time}</span>}
+          </div>
+        ) : (
+          time && <span className="text-xs text-gray-400">{time}</span>
+        )}
       </div>
-      {!left && <Avatar avatar={avatar}/>}
+      {!isAssistant && <Avatar avatar={AvatarOrUrl} />}
     </div>
   );
 };
 
-const Avatar = ({ avatar }) =>
-  avatar?.startsWith("http")
-    ? <img src={avatar} alt="pfp" className="h-8 w-8 rounded-full object-cover"/>
-    : <div className="h-8 w-8 rounded-full bg-primary text-white flex items-center justify-center font-bold text-xs">{avatar}</div>;
+const Avatar = ({ avatar }) => {
+  if (typeof avatar === "string" && avatar.startsWith("http")) {
+    return <img src={avatar} alt="avatar" className="h-8 w-8 rounded-full object-cover" />;
+  }
+  // otherwise assume a Lucide icon
+  const Icon = avatar;
+  return (
+    <div className="h-8 w-8 rounded-full bg-primary text-white flex items-center justify-center text-xs">
+      {typeof Icon === "function" ? <Icon size={16} /> : "U"}
+    </div>
+  );
+};
+
+// ─── formatter ───
+function fmt(s) {
+  return `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
+}

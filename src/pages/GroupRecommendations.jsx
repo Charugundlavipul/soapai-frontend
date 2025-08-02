@@ -260,7 +260,7 @@ useEffect(() => {
           selectedGoals={selectedGoals}
           setShowPicker={setShowPicker}
           visitNoteOf={visitNoteOf}
-          onViewSession={pid => navigate(`/appointments/${appointmentId}/patient/${pid}`)}
+          onViewSession={pid => navigate(`/clients/${pid}/edit`)}
         />
 
         <div className="col-span-8 flex flex-col space-y-6">
@@ -391,7 +391,7 @@ const LeftPanel = ({
               onClick={() => onViewSession(p._id)}
               className="px-3 py-1 bg-primary text-white text-xs rounded-full hover:bg-primary/90"
             >
-              View Session
+              View Profile
             </button>
           </li>
         ))}
@@ -424,44 +424,6 @@ const LeftPanel = ({
     </div>
   </div>
 );
-
-/* ------------------------------------------------------------------ */
-/* Group-insights tab                                                 */
-/* ------------------------------------------------------------------ */
-const GroupInsightsTab = ({ recommendation, group }) => {
-  const grpInsights =
-    recommendation?.groupInsights?.length
-      ? recommendation.groupInsights
-      : [PLACEHOLDER_GROUP_INSIGHT];
-
-  const indiv = recommendation?.individualInsights?.length
-    ? recommendation.individualInsights
-    : group.patients.map(p => ({
-        patient: { _id: p._id, name: p.name },
-        insights: [PLACEHOLDER_INDIVIDUAL_INSIGHT],
-      }));
-
-  return (
-    <div className="bg-[#F5F4FB] rounded-2xl p-6 shadow-sm space-y-6">
-      <h4 className="text-xl font-semibold text-gray-800">Group Insights</h4>
-      {grpInsights.map((ins, i) => (
-        <InsightRow key={i} ins={ins} />
-      ))}
-
-      <h4 className="text-xl font-semibold text-gray-800 mt-4">
-        Individual Insights
-      </h4>
-      {indiv.map(ii => (
-        <div key={ii.patient._id} className="space-y-2">
-          <h5 className="font-semibold text-primary">{ii.patient.name}</h5>
-          {ii.insights.map((ins, idx) => (
-            <InsightRow key={idx} ins={ins} />
-          ))}
-        </div>
-      ))}
-    </div>
-  );
-};
 
 function GroupProgressTab({ group, appointmentId, sessionGoals, apptStart }) {
   const buildRows = (grp, goals) =>
@@ -498,7 +460,7 @@ function GroupProgressTab({ group, appointmentId, sessionGoals, apptStart }) {
                 ? {
                     ...g,
                     visitProgress: val,
-                    latest: Math.max(g.latest, val), // ← recompute
+                    latest: Math.max(g.latest, val),
                   }
                 : g
             ),
@@ -535,27 +497,6 @@ function GroupProgressTab({ group, appointmentId, sessionGoals, apptStart }) {
     } catch {/* ignore */ }
   }
 };
-
-  const save = async () => {
-    try {
-      await Promise.all(rows.map(p =>
-        api.patch(
-          `/clients/${p.pid}/goal-progress/${appointmentId}`,
-          { goals: p.goals.map(g => ({ name:g.name, progress:g.visitProgress })), visitDate: apptStart }
-        )
-      ));
-      setRows(r => r.map(p => ({
-  ...p,
-  goals: p.goals.map(g => ({
-    ...g,
-    latest: Math.max(g.latest, g.visitProgress)        // ← keep the max
-  }))
-})));
-      alert("Progress saved!");
-    } catch (e) {
-      alert(e.response?.data?.message || "Save failed");
-    }
-  };
 
   /* ---------- render ---------- */
   return (

@@ -1,8 +1,6 @@
 "use client";
 import { useState, useEffect } from "react";
-import CustomDatePicker from "../components/CustomDatePicker";
-import { ResponsiveContainer, LineChart, CartesianGrid,
-         XAxis, YAxis, Tooltip, Line } from "recharts";
+
 
 export default function ProgressTrackerVisit({
   rows,                // [{ name, latest, visitProgress }]
