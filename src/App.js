@@ -11,6 +11,7 @@ import UploadVideoPage        from './pages/UploadVideo';
 import SessionReview          from './pages/SessionReview';
 import PatientAnalysis from './pages/PatientAnalysis';
 import EditClientPage         from './pages/EditClientPage';
+import VideoLibrary           from './pages/VideoLibrary';
 
 import AnnualGoals from './pages/AnnualGoals';
 import RecordVideo            from './pages/RecordVideo';
@@ -32,6 +33,7 @@ export default function App() {
           <Route path="/reset-success"            element={<ResetSuccess />} />
           <Route path="/behaviours"               element={<BehaviourBank />} />
           <Route path="/appointments/:id/upload"  element={<UploadVideoPage />} />
+          <Route path="/videos"                   element={<VideoLibrary />} />
           
           <Route path="/videos/:id/review"        element={<SessionReview />} />
           <Route path="/clients/:id/analysis"     element={<PatientAnalysis/>}/>

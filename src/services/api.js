@@ -2,7 +2,7 @@
 import axios from 'axios';
 
 const api = axios.create({
-  baseURL: 'http://localhost:4000/api',   // change when you deploy
+  baseURL: process.env.REACT_APP_API_URL,
   headers: { 'Content-Type': 'application/json' }
 });
 
@@ -48,7 +48,7 @@ export const patchVideoGoals = (id, body) =>
 export const chatLLM = body => {
   if (body instanceof FormData) {
     // Use raw Axios to bypass the global default
-    return axios.post("http://localhost:4000/api/chat", body, {
+    return axios.post(`${process.env.REACT_APP_API_URL}/chat`, body, {
       headers: {
         Authorization: `Bearer ${localStorage.getItem("jwt")}`,
         // let browser auto-set correct boundary

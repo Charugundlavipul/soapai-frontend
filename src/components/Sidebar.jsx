@@ -1,4 +1,4 @@
-import { CalendarIcon, UsersIcon, BookOpenIcon } from '@heroicons/react/24/solid';
+import { CalendarIcon, UsersIcon, BookOpenIcon, VideoCameraIcon } from '@heroicons/react/24/solid';
 import { NavLink } from 'react-router-dom';
 
 export default function Sidebar() {
@@ -17,6 +17,11 @@ export default function Sidebar() {
         <UsersIcon className="h-6 w-6" />
         <span className="hidden lg:inline">Clients</span>
       </NavLink> */}
+
+      <NavLink to="/videos" className={({ isActive }) => `${link} ${isActive ? active : ''}`}>
+        <VideoCameraIcon className="h-6 w-6" />
+        <span className="hidden lg:inline">Video Library</span>
+      </NavLink>
 
       <NavLink to="/annual-goals" className={({ isActive }) => `${link} ${isActive ? active : ''}`}>
         <BookOpenIcon className="h-6 w-6" />

@@ -11,11 +11,11 @@ import SingleSelectDropdown from "./single-select-dropdown"
 import SavingToast from "../components/savingToast"
 import axios from "axios"
 import { Users, Target, Clock, Edit, Trash2, AlertTriangle } from "lucide-react"
-
+import config from "../config/config"
 
 const api = axios.create({
-  baseURL: "http://localhost:4000/api",
-  headers: { Authorization: `Bearer ${localStorage.getItem("jwt")}` },
+  baseURL: config.getApiUrl(""),
+  headers: config.getHeaders(),
 })
 
 // Configure marked for better HTML output

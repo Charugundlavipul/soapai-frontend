@@ -9,26 +9,29 @@ import GoalPickerModal   from "../modals/GoalPickerModal";
 import ActivityGenerator from "../components/ActivityGenerator";
 import VisitNotes        from "../components/VisitNotes";
 import ProgressTrackerVisit from "../components/ProgressTrackerVisit";
+import config from "../config/config";
 
 import {
   ChevronLeft,
   ClipboardList,
   Users,
-  Sparkle,   // for the tab bar
-  ChartLine  
+  Sparkle,   // for the step bar
+  ChartLine,
+  ChevronRight,
+  CheckCircle
 } from "lucide-react";
 
 import { marked }    from "marked";
 
 const api = axios.create({
-  baseURL: "http://localhost:4000/api",
-  headers: { Authorization: `Bearer ${localStorage.getItem("jwt")}` },
+  baseURL: config.getApiUrl(""),
+  headers: config.getHeaders(),
 });
 
 /* ──────────────────────────────────────────────────────────── */
 /* Place-holders                                               */
 /* ──────────────────────────────────────────────────────────── */
-const PLACEHOLDER_VISIT = "Student reviewed flower parts and recalled 2 of 5 vocabulary terms. They created a bouquet with interest and watched a spring video, answering questions with growing comprehension. During a contraction-building activity, they identified apostrophes replacing “i” in “who’s” and “what’s,” showing grammar awareness.";
+const PLACEHOLDER_VISIT = "Student reviewed flower parts and recalled 2 of 5 vocabulary terms. They created a bouquet with interest and watched a spring video, answering questions with growing comprehension. During a contraction-building activity, they identified apostrophes replacing \"i\" in \"who's\" and \"what's,\" showing grammar awareness.";
 
 const PLACEHOLDER_GROUP_INSIGHT = {
   text    : "Group demonstrated steady progress in social engagement: 80% more peer-to-peer interactions than the previous session.",
@@ -66,7 +69,7 @@ export default function GroupRecommendations() {
 
   const [visitNotes, setVisitNotes]     = useState({});   // pid → text
 
-  const [activeTab, setActiveTab]       = useState("visitNotes");
+  const [currentStep, setCurrentStep]   = useState(1); // 1: visitNotes, 2: progress, 3: activityGenerator
   const [showPicker, setShowPicker]     = useState(false);
 
   const [video, setVideo]               = useState(location.state?.video || null);
@@ -105,8 +108,8 @@ useEffect(() => {
       /* 1. base group (patients are just ObjectIds here) */
       const { data: grp } = await api.get(`/groups/${grpId}`);
 
-      /* 2. fetch every patient’s *full* doc in parallel */
-      /* 2. fetch every patient’s *full* doc in parallel */
+      /* 2. fetch every patient's *full* doc in parallel */
+      /* 2. fetch every patient's *full* doc in parallel */
       const fullPatients = await Promise.all(
         grp.patients.map(async (p) => {
           /* p could be either an ObjectId or an object already */
@@ -202,7 +205,7 @@ useEffect(() => {
     /* 1. if we already have an edited / freshly-saved note in state, use it */
     if (visitNotes.hasOwnProperty(pid)) return visitNotes[pid];
 
-    /* 2. otherwise fall back to whatever is already in the patient’s
+    /* 2. otherwise fall back to whatever is already in the patient's
           visitHistory that came down with the <group> payload           */
     const pat  = group.patients.find(p => String(p._id) === String(pid));
     const row  = pat?.visitHistory?.find(
@@ -211,6 +214,20 @@ useEffect(() => {
 
     return (row?.note ?? "");
   };
+
+  /* ---------- step navigation ---------- */
+  const nextStep = () => {
+    if (currentStep < 3) setCurrentStep(currentStep + 1);
+  };
+
+  const prevStep = () => {
+    if (currentStep > 1) setCurrentStep(currentStep - 1);
+  };
+
+  const goToStep = (step) => {
+    setCurrentStep(step);
+  };
+
   /* ---------- markdown → html side-effect ---------- */
   useEffect(() => {
     if (planMD && editorRef.current) {
@@ -264,9 +281,9 @@ useEffect(() => {
         />
 
         <div className="col-span-8 flex flex-col space-y-6">
-          <TabBar active={activeTab} setActive={setActiveTab} />
+          <StepBar currentStep={currentStep} onStepClick={goToStep} />
 
-          {activeTab === "visitNotes" && (
+          {currentStep === 1 && (
             <VisitNotes
               patients={group.patients}
               appointmentId={appointmentId}
@@ -279,7 +296,7 @@ useEffect(() => {
             />
           )}
 
-          {activeTab === "progress" && (
+          {currentStep === 2 && (
             <GroupProgressTab
               group={group}
               appointmentId={appointmentId}
@@ -288,7 +305,7 @@ useEffect(() => {
             />
           )}
 
-          {activeTab === "activityGenerator" && (
+          {currentStep === 3 && (
             <ActivityGenerator
               mode="group"
               appointmentId={appointmentId}
@@ -298,6 +315,15 @@ useEffect(() => {
               onActivitiesChange={setActivities}
             />
           )}
+
+          {/* Step Navigation */}
+          <StepNavigation 
+            currentStep={currentStep}
+            onNext={nextStep}
+            onPrev={prevStep}
+            canGoNext={currentStep < 3}
+            canGoPrev={currentStep > 1}
+          />
         </div>
       </div>
     </Shell>
@@ -315,28 +341,87 @@ const Shell = ({ children }) => (
 );
 
 /* ------------------------------------------------------------------ */
-/* Tab Bar                                                             */
+/* Step Bar                                                           */
 /* ------------------------------------------------------------------ */
-const TabBar = ({ active, setActive }) => {
-  const Btn = (id, label, Icon) => (
-    <button
-      onClick={() => setActive(id)}
-      className={`flex items-center gap-2 px-9 py-3 text-base font-medium rounded-xl transition border ${
-        active === id
-          ? "bg-primary text-white border-primary"
-          : "bg-white text-primary border-gray-200 hover:bg-[#F5F4FB]"
-      }`}
-    >
-      <Icon className={`w-6 h-6 ${active === id ? "text-white" : "text-primary"}`} />
-      {label}
-    </button>
-  );
+const StepBar = ({ currentStep, onStepClick }) => {
+  const steps = [
+    { id: 1, label: "Visit Notes", icon: ClipboardList },
+    { id: 2, label: "Patient Progress", icon: ChartLine },
+    { id: 3, label: "Activity Generator", icon: Sparkle }
+  ];
 
   return (
     <div className="mx-auto flex justify-center gap-4 bg-[#F5F4FB] rounded-2xl px-10 py-4 shadow-sm">
-      {Btn("visitNotes", "Visit Notes", ClipboardList)}
-      {Btn("progress", "Patient Progress", ChartLine)}
-      {Btn("activityGenerator", "Activity Generator", Sparkle)}
+      {steps.map((step, index) => {
+        const Icon = step.icon;
+        const isActive = currentStep === step.id;
+        const isCompleted = currentStep > step.id;
+        const isClickable = currentStep >= step.id || isCompleted;
+
+        return (
+          <button
+            key={step.id}
+            onClick={() => isClickable && onStepClick(step.id)}
+            disabled={!isClickable}
+            className={`flex items-center gap-3 px-6 py-3 text-base font-medium rounded-xl transition-all duration-200 ${
+              isClickable ? 'cursor-pointer hover:scale-105' : 'cursor-not-allowed opacity-50'
+            }              ${
+               isActive
+                 ? "bg-primary text-white shadow-lg"
+                 : isCompleted
+                 ? "bg-primary/10 text-primary border-2 border-primary/30"
+                 : "bg-white text-gray-600 border-2 border-gray-200"
+             }`}
+          >
+            {isCompleted ? (
+              <CheckCircle className="w-6 h-6 text-primary" />
+            ) : (
+              <Icon className="w-6 h-6" />
+            )}
+            <span className="hidden sm:inline">{step.label}</span>
+            <span className="sm:hidden">{step.id}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+};
+
+/* ------------------------------------------------------------------ */
+/* Step Navigation                                                    */
+/* ------------------------------------------------------------------ */
+const StepNavigation = ({ currentStep, onNext, onPrev, canGoNext, canGoPrev }) => {
+  return (
+    <div className="flex justify-between items-center pt-6 border-t border-gray-200">
+      <button
+        onClick={onPrev}
+        disabled={!canGoPrev}
+        className={`flex items-center gap-2 px-6 py-3 text-base font-medium rounded-lg transition ${
+          canGoPrev
+            ? "bg-gray-100 text-gray-700 hover:bg-gray-200"
+            : "bg-gray-50 text-gray-400 cursor-not-allowed"
+        }`}
+      >
+        <ChevronLeft className="w-5 h-5" />
+        Previous
+      </button>
+
+      <div className="text-sm text-gray-500">
+        Step {currentStep} of 3
+      </div>
+
+      <button
+        onClick={onNext}
+        disabled={!canGoNext}
+        className={`flex items-center gap-2 px-6 py-3 text-base font-medium rounded-lg transition ${
+          canGoNext
+            ? "bg-primary text-white hover:bg-primary/90"
+            : "bg-gray-50 text-gray-400 cursor-not-allowed"
+        }`}
+      >
+        Next
+        <ChevronRight className="w-5 h-5" />
+      </button>
     </div>
   );
 };

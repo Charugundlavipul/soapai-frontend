@@ -8,7 +8,7 @@ import VideoPlayer from "../components/VideoPlayer";
 
 import axios from "axios";
 import {
-  ChevronDown,
+  ChevronLeft,
   Bot,
   User,
   CheckCircle2,
@@ -23,10 +23,11 @@ import {
 
 import Navbar from "../components/Navbar";
 import EmojiBtn from "../components/EmojiBtn";
+import config from "../config/config";
 
 const api = axios.create({
-  baseURL: "http://localhost:4000/api",
-  headers: { Authorization: `Bearer ${localStorage.getItem("jwt")}` },
+  baseURL: config.getApiUrl(""),
+  headers: config.getHeaders(),
 });
 
 export default function SessionReview() {
@@ -130,10 +131,18 @@ export default function SessionReview() {
 
   // render
   return (
-    <div className="h-screen flex flex-col bg-gray-50 overflow-hidden">
+    <div className="min-h-screen flex flex-col bg-white">
       <Navbar />
+      <main className="flex-1 p-6 max-w-7xl mx-auto">
+        {/* Header */}
+        <div className="flex items-center gap-3 mb-6">
+          <button onClick={() => navigate(-1)}>
+            <ChevronLeft className="w-6 h-6 text-gray-600 hover:text-gray-800" />
+          </button>
+          <h2 className="text-2xl font-semibold text-gray-800">Session Review</h2>
+        </div>
 
-      <main className="px-6 max-w-[1400px] w-full mx-auto flex-1 min-h-0 flex gap-6 overflow-hidden">
+        <div className="flex gap-6">
         {/* ─── LEFT ─── */}
         <div className="flex flex-col gap-6 w-[520px] shrink-0">
           <div className="w-full aspect-video rounded-lg overflow-hidden bg-black shadow-md">
@@ -157,13 +166,13 @@ export default function SessionReview() {
         </div>
 
         {/* ─── RIGHT CHAT ─── */}
-        <div className="bg-white rounded-xl shadow-md flex flex-col flex-1 overflow-hidden">
+        <div className="bg-white rounded-xl shadow-md flex flex-col flex-1 overflow-hidden" style={{ height: '600px' }}>
           <h3 className="px-6 py-4 border-b border-gray-200 text-lg font-semibold text-primary flex items-center gap-2 shrink-0">
             <Bot size={20} /> Chat with SOAP
           </h3>
           
-          {/* This is the scrollable message container. `min-h-0` is key for flexbox to allow it to scroll. */}
-          <div className="flex-1 min-h-0 overflow-y-auto px-6 pt-6 space-y-6">
+          {/* This is the scrollable message container with fixed height */}
+          <div className="flex-1 overflow-y-auto px-6 pt-6 space-y-6">
             {msgs.map((m, i) => (
               <Bubble
                 key={i}
@@ -236,6 +245,7 @@ export default function SessionReview() {
           video={video}
           onSaved={setVideo}
         />
+        </div>
       </main>
     </div>
   );

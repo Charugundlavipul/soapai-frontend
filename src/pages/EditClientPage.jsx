@@ -9,6 +9,7 @@ import { useEffect, useState, Suspense } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import axios from "axios";
 import api from "../services/api";
+import config from "../config/config.js";
 import PatientJourneyChart from "../components/PatientJourneyChart";
 import Avatar from "../components/Avatar";
 import Navbar from "../components/Navbar";
@@ -70,14 +71,14 @@ export default function EditClientPage() {
         (async () => {
             try {
                 const { data } = await axios.get(
-                    `http://localhost:4000/api/clients/${id}/profile`,
+                    config.getApiUrl(`/clients/${id}/profile`),
                     {
                         headers: {
                             Authorization: `Bearer ${localStorage.getItem("jwt")}`,
                         },
                     }
                 );
-                const { data: g } = await axios.get("http://localhost:4000/api/groups", {
+                const { data: g } = await axios.get(config.getApiUrl("/groups"), {
                     headers: { Authorization: `Bearer ${localStorage.getItem("jwt")}` },
                 });
 
@@ -132,7 +133,7 @@ export default function EditClientPage() {
                 : rest;
 
             const { data } = await axios.put(
-                `http://localhost:4000/api/clients/${id}`,
+                config.getApiUrl(`/clients/${id}`),
                 body,
                 { headers }
             );

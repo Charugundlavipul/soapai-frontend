@@ -4,16 +4,17 @@ import { useParams, useNavigate, useLocation } from "react-router-dom";
 import axios               from "axios";
 import Navbar              from "../components/Navbar";
 import GoalPickerModal     from "../modals/GoalPickerModal";
-import { ChevronLeft, ClipboardList, Zap, Sparkle,ChartLine } from "lucide-react";
+import { ChevronLeft, ClipboardList, Zap, Sparkle,ChartLine, ChevronRight, CheckCircle } from "lucide-react";
 import Avatar              from "../components/Avatar";
 import ActivityGenerator   from "../components/ActivityGenerator";
 import VisitNotes          from "../components/VisitNotes";
 import ProgressTrackerVisit from "../components/ProgressTrackerVisit";
+import config from "../config/config";
 
 /* ───── axios helper ───── */
 const api = axios.create({
-  baseURL : "http://localhost:4000/api",
-  headers : { Authorization: `Bearer ${localStorage.getItem("jwt")}` }
+  baseURL: config.getApiUrl(""),
+  headers: config.getHeaders()
 });
 
 function stgForAppt(patient, appointmentId) {
@@ -49,7 +50,7 @@ export default function IndividualRecommendations() {
 
   /* activity / ui */
   const [activities , setActivities]  = useState([]);
-  const [activeTab  , setActiveTab]   = useState("visitNotes");
+  const [currentStep, setCurrentStep] = useState(1); // 1: visitNotes, 2: progress, 3: activityGenerator
   const [showPicker , setShowPicker]  = useState(false);
   const [selectedGoals, setSelectedGoals] = useState([]);
   const [planMD, setPlanMD] = useState("");
@@ -60,7 +61,18 @@ export default function IndividualRecommendations() {
   const stgEntry = client ? stgForAppt(client, appointmentId) : null;
   const stgText  = stgEntry?.text ?? "";
 
+  /* ─── step navigation ─── */
+  const nextStep = () => {
+    if (currentStep < 3) setCurrentStep(currentStep + 1);
+  };
 
+  const prevStep = () => {
+    if (currentStep > 1) setCurrentStep(currentStep - 1);
+  };
+
+  const goToStep = (step) => {
+    setCurrentStep(step);
+  };
 
   /* ──────────────────────────────────────────
      1️⃣  Load patient + ensure placeholder visit
@@ -209,8 +221,8 @@ useEffect(() => {
 
         {/* RIGHT */}
         <RightPanel
-          activeTab={activeTab}
-          setActiveTab={setActiveTab}
+          currentStep={currentStep}
+          setCurrentStep={setCurrentStep}
           aiInsights={aiInsights}
           visitNote={visitNote}
           setVisitNote={setVisitNote}
@@ -285,7 +297,7 @@ function LeftPanel({ client, selectedGoals, onEditGoals, appointmentId }) {
 
 /* helper components omitted for brevity … (ProfileCard, GoalsCard, RightPanel, etc.)
    ⇢ They are identical to your current versions except that:
-     • RightPanel no longer references “recommendation”.
+     • RightPanel no longer references "recommendation".
      • No code path calls /appointments/:id/recommendations.       
      
      /* ─── tiny helpers added because ESLint yelled ─── */
@@ -310,7 +322,7 @@ function ProfileCard({ client }) {
   );
 }
 
-/** Generic “Goals” card. If onEdit is provided, shows an Edit button */
+/** Generic "Goals" card. If onEdit is provided, shows an Edit button */
 function GoalsCard({ title, goals = [], onEdit }) {
   return (
     <div className="bg-white rounded-xl p-4 shadow-sm space-y-3">
@@ -360,7 +372,7 @@ function Shell({ children }) {
 //   <div className="bg-white rounded-xl p-4 shadow-sm space-y-3">
 //     <div className="flex justify-between items-center">
 //       <h4 className="text-lg font-medium text-gray-800">{title}</h4>
-//       {action && (
+//       <action && (
 //         <button
 //           onClick={action}
 //           className="text-xs bg-primary text-white px-3 py-1 rounded-full hover:bg-primary/90"
@@ -383,10 +395,10 @@ function Shell({ children }) {
 //   <span className="text-xs italic text-gray-400">{children}</span>
 // );
 
-/* ---- RIGHT column with tabs ---- */
+/* ---- RIGHT column with steps ---- */
 function RightPanel({
-  activeTab,
-  setActiveTab,
+  currentStep,
+  setCurrentStep,
   selectedGoals,
   aiInsights,
   visitNote,
@@ -402,10 +414,10 @@ function RightPanel({
 }) {
   return (
     <div className="col-span-8 flex flex-col space-y-6">
-      <TabBar active={activeTab} setActive={setActiveTab} />
+      <StepBar currentStep={currentStep} onStepClick={setCurrentStep} />
 
       {/* VISIT NOTES */}
-      {activeTab === "visitNotes" && (
+      {currentStep === 1 && (
         <VisitNotes
           patients={[client]}
           appointmentId={appointmentId}
@@ -418,7 +430,7 @@ function RightPanel({
       )}
 
       {/* AI INSIGHTS */}
-      {activeTab === "progress" && (
+      {currentStep === 2 && (
         <ProgressTab
           patient={client}
           appointmentId={appointmentId}
@@ -428,7 +440,7 @@ function RightPanel({
       )}
 
       {/* ACTIVITY GENERATOR */}
-      {activeTab === "activityGenerator" && (
+      {currentStep === 3 && (
         <ActivityGenerator
           mode="individual"
           appointmentId={appointmentId}
@@ -438,32 +450,97 @@ function RightPanel({
           onActivitiesChange={setActivities}
         />
       )}
+
+      {/* Step Navigation */}
+      <StepNavigation 
+        currentStep={currentStep}
+        onNext={() => setCurrentStep(Math.min(currentStep + 1, 3))}
+        onPrev={() => setCurrentStep(Math.max(currentStep - 1, 1))}
+        canGoNext={currentStep < 3}
+        canGoPrev={currentStep > 1}
+      />
     </div>
   );
 }
 
-/* tab bar */
-function TabBar({ active, setActive }) {
-  const btn = (id, label, Icon) => (
-    <button
-      onClick={() => setActive(id)}
-      className={`flex items-center gap-2 px-9 py-3 text-base font-medium rounded-xl transition border ${
-        active === id
-          ? "bg-primary text-white border-primary"
-          : "bg-white text-primary border-gray-200 hover:bg-[#F5F4FB]"
-      }`}
-    >
-      <Icon
-        className={`w-6 h-6 ${active === id ? "text-white" : "text-primary"}`}
-      />
-      {label}
-    </button>
-  );
+/* step bar */
+function StepBar({ currentStep, onStepClick }) {
+  const steps = [
+    { id: 1, label: "Visit Notes", icon: ClipboardList },
+    { id: 2, label: "Progress", icon: ChartLine },
+    { id: 3, label: "Activity Generator", icon: Sparkle }
+  ];
+
   return (
     <div className="mx-auto flex justify-center gap-4 bg-[#F5F4FB] rounded-2xl px-10 py-4 shadow-sm">
-      {btn("visitNotes", "Visit Notes", ClipboardList)}
-      {btn("progress", "Progress", ChartLine)}
-      {btn("activityGenerator", "Activity Generator", Sparkle)}
+      {steps.map((step, index) => {
+        const Icon = step.icon;
+        const isActive = currentStep === step.id;
+        const isCompleted = currentStep > step.id;
+        const isClickable = currentStep >= step.id || isCompleted;
+
+        return (
+          <button
+            key={step.id}
+            onClick={() => isClickable && onStepClick(step.id)}
+            disabled={!isClickable}
+            className={`flex items-center gap-3 px-6 py-3 text-base font-medium rounded-xl transition-all duration-200 ${
+              isClickable ? 'cursor-pointer hover:scale-105' : 'cursor-not-allowed opacity-50'
+            }              ${
+               isActive
+                 ? "bg-primary text-white shadow-lg"
+                 : isCompleted
+                 ? "bg-primary/10 text-primary border-2 border-primary/30"
+                 : "bg-white text-gray-600 border-2 border-gray-200"
+             }`}
+          >
+            {isCompleted ? (
+              <CheckCircle className="w-6 h-6 text-primary" />
+            ) : (
+              <Icon className="w-6 h-6" />
+            )}
+            <span className="hidden sm:inline">{step.label}</span>
+            <span className="sm:hidden">{step.id}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/* step navigation */
+function StepNavigation({ currentStep, onNext, onPrev, canGoNext, canGoPrev }) {
+  return (
+    <div className="flex justify-between items-center pt-6 border-t border-gray-200">
+      <button
+        onClick={onPrev}
+        disabled={!canGoPrev}
+        className={`flex items-center gap-2 px-6 py-3 text-base font-medium rounded-lg transition ${
+          canGoPrev
+            ? "bg-gray-100 text-gray-700 hover:bg-gray-200"
+            : "bg-gray-50 text-gray-400 cursor-not-allowed"
+        }`}
+      >
+        <ChevronLeft className="w-5 h-5" />
+        Previous
+      </button>
+
+      <div className="text-sm text-gray-500">
+        Step {currentStep} of 3
+      </div>
+
+      <button
+        onClick={onNext}
+        disabled={!canGoNext}
+        className={`flex items-center gap-2 px-6 py-3 text-base font-medium rounded-lg transition ${
+          canGoNext
+            ? "bg-primary text-white hover:bg-primary/90"
+            : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+        }`}
+      >
+        Next
+        <ChevronRight className="w-5 h-5" />
+      </button>
     </div>
   );
 }

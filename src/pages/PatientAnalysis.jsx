@@ -7,6 +7,7 @@ import { ChevronLeft,  ClipboardList,
   Sparkle, } from "lucide-react";
 import axios from "axios";
 import { getPatient } from "../services/api"; // your existing wrapper
+import config from "../config/config";
 
 /* ─────────────────────────────  Inline <EditGoalsModal/>  ───────────────────────────── */
 function EditGoalsModal({ open, onClose, currentGoals = [], onSave }) {
@@ -146,9 +147,9 @@ export default function PatientAnalysis() {
   async function saveGoals(gs) {
     try {
       const r = await axios.patch(
-        `http://localhost:4000/api/clients/${id}/goals`,
+        config.getApiUrl(`/clients/${id}/goals`),
         { goals: gs },
-        { headers: { Authorization: `Bearer ${localStorage.getItem("jwt")}` } }
+        { headers: config.getHeaders() }
       );
       setPatient((p) => ({ ...p, goals: r.data.goals }));
       setShowModal(false);

@@ -15,10 +15,11 @@ import { marked } from "marked";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
 import Avatar from "../components/Avatar";
+import config from "../config/config";
 
 const api = axios.create({
-  baseURL: "http://localhost:4000/api",
-  headers: { Authorization: `Bearer ${localStorage.getItem("jwt")}` },
+  baseURL: config.getApiUrl(""),
+  headers: config.getHeaders(),
 });
 
 // Placeholders
@@ -306,7 +307,7 @@ export default function SessionPatientView() {
           {/* RIGHT PANEL */}
           <div className="col-span-7 flex flex-col space-y-6">
             {/* Tabs */}
-            <div className="flex gap-4 bg-[#F5F4FB] rounded-2xl px-6 py-4 shadow-sm">
+            <div className="mx-auto flex justify-center gap-4 bg-[#F5F4FB] rounded-2xl px-10 py-4 shadow-sm">
               <TabBtn
                 id="visitNotes"
                 active={activeTab}

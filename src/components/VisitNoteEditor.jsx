@@ -1,10 +1,11 @@
 import { useState, useEffect } from "react";
 import PropTypes                 from "prop-types";
 import axios                     from "axios";
+import config from "../config/config";
 
 const api = axios.create({
-  baseURL : "http://localhost:4000/api",
-  headers : { Authorization: `Bearer ${localStorage.getItem("jwt")}` }
+  baseURL: config.getApiUrl(""),
+  headers: config.getHeaders(),
 });
 
 export default function VisitNoteEditor({
